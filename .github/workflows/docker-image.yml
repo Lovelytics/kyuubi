@@ -34,9 +34,6 @@ jobs:
         spark-version:
           - "3.2.0"
           - "3.3.0"
-    concurrency:
-      group: push-docker-image
-      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v3
