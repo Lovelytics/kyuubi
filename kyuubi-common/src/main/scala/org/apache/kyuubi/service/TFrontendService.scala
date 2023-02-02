@@ -145,9 +145,12 @@ abstract class TFrontendService(name: String)
   protected def getRealUserAndSessionUser(req: TOpenSessionReq): (String, String) = {
     val longUsername = conf.get(AUTHENTICATION_LONG_USERNAME)
     val realUser: String =
-      if (longUsername)
+      if (longUsername) {
         authFactory.getRemoteUser.getOrElse(req.getUsername)
-      else ServiceUtils.getShortName(authFactory.getRemoteUser.getOrElse(req.getUsername))
+      }
+      else {
+        ServiceUtils.getShortName(authFactory.getRemoteUser.getOrElse(req.getUsername))
+      }
     val sessionUser =
       if (req.getConfiguration == null) {
         realUser
