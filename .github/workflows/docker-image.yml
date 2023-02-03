@@ -35,6 +35,7 @@ jobs:
         role:
           - arn:aws:iam::490994600027:role/GitHubActions
           - arn:aws:iam::168092343067:role/GitHubActions
+          - arn:aws:iam::231342060024:role/GitHubActions
         spark-version:
           - "3.2"
           - "3.3"
