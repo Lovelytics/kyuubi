@@ -26,9 +26,11 @@ object MetricsConstants {
   final val BUFFER_POOL: String = KYUUBI + "buffer_pool"
   final val THREAD_STATE: String = KYUUBI + "thread_state"
   final val CLASS_LOADING: String = KYUUBI + "class_loading"
+  final val JVM: String = KYUUBI + "jvm"
 
   final val EXEC_POOL_ALIVE: String = KYUUBI + "exec.pool.threads.alive"
   final val EXEC_POOL_ACTIVE: String = KYUUBI + "exec.pool.threads.active"
+  final val EXEC_POOL_WORK_QUEUE_SIZE: String = KYUUBI + "exec.pool.work_queue.size"
 
   final private val CONN = KYUUBI + "connection."
   final private val THRIFT_HTTP_CONN = KYUUBI + "thrift.http.connection."
@@ -61,6 +63,7 @@ object MetricsConstants {
   final val OPERATION_FAIL: String = OPERATION + "failed"
   final val OPERATION_TOTAL: String = OPERATION + "total"
   final val OPERATION_STATE: String = OPERATION + "state"
+  final val OPERATION_EXEC_TIME: String = OPERATION + "exec_time"
 
   final private val BACKEND_SERVICE = KYUUBI + "backend_service."
   final val BS_FETCH_LOG_ROWS_RATE = BACKEND_SERVICE + "fetch_log_rows_rate"

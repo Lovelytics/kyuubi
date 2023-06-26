@@ -20,9 +20,8 @@ package org.apache.kyuubi.engine
 import java.io.File
 import java.net.{URI, URISyntaxException}
 import java.nio.file.{Files, Path}
-import java.util.{Locale, ServiceLoader}
+import java.util.Locale
 
-import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
 import org.apache.kyuubi.{KyuubiException, Utils}
@@ -31,14 +30,13 @@ import org.apache.kyuubi.engine.KubernetesApplicationOperation.LABEL_KYUUBI_UNIQ
 import org.apache.kyuubi.engine.flink.FlinkProcessBuilder
 import org.apache.kyuubi.engine.spark.SparkProcessBuilder
 import org.apache.kyuubi.service.AbstractService
+import org.apache.kyuubi.util.reflect.ReflectUtils._
 
 class KyuubiApplicationManager extends AbstractService("KyuubiApplicationManager") {
 
   // TODO: maybe add a configuration is better
-  private val operations = {
-    ServiceLoader.load(classOf[ApplicationOperation], Utils.getContextOrKyuubiClassLoader)
-      .iterator().asScala.toSeq
-  }
+  private val operations =
+    loadFromServiceLoader[ApplicationOperation](Utils.getContextOrKyuubiClassLoader).toSeq
 
   override def initialize(conf: KyuubiConf): Unit = {
     operations.foreach { op =>
@@ -59,15 +57,14 @@ class KyuubiApplicationManager extends AbstractService("KyuubiApplicationManager
         case NonFatal(e) => warn(s"Error stopping ${op.getClass.getSimpleName}: ${e.getMessage}")
       }
     }
-    deleteTempDirForUpload()
     super.stop()
   }
 
-  def killApplication(resourceManager: Option[String], tag: String): KillResponse = {
+  def killApplication(appMgrInfo: ApplicationManagerInfo, tag: String): KillResponse = {
     var (killed, lastMessage): KillResponse = (false, null)
     for (operation <- operations if !killed) {
-      if (operation.isSupported(resourceManager)) {
-        val (k, m) = operation.killApplicationByTag(tag)
+      if (operation.isSupported(appMgrInfo)) {
+        val (k, m) = operation.killApplicationByTag(appMgrInfo, tag)
         killed = k
         lastMessage = m
       }
@@ -76,7 +73,7 @@ class KyuubiApplicationManager extends AbstractService("KyuubiApplicationManager
     val finalMessage =
       if (lastMessage == null) {
         s"No ${classOf[ApplicationOperation]} Service found in ServiceLoader" +
-          s" for $resourceManager"
+          s" for $appMgrInfo"
       } else {
         lastMessage
       }
@@ -84,23 +81,13 @@ class KyuubiApplicationManager extends AbstractService("KyuubiApplicationManager
   }
 
   def getApplicationInfo(
-      clusterManager: Option[String],
-      tag: String): Option[ApplicationInfo] = {
-    val operation = operations.find(_.isSupported(clusterManager))
+      appMgrInfo: ApplicationManagerInfo,
+      tag: String,
+      submitTime: Option[Long] = None): Option[ApplicationInfo] = {
+    val operation = operations.find(_.isSupported(appMgrInfo))
     operation match {
-      case Some(op) => Some(op.getApplicationInfoByTag(tag))
+      case Some(op) => Some(op.getApplicationInfoByTag(appMgrInfo, tag, submitTime))
       case None => None
-    }
-  }
-
-  private def deleteTempDirForUpload(): Unit = {
-    try {
-      Utils.deleteDirectoryRecursively(KyuubiApplicationManager.tempDirForUpload.toFile)
-    } catch {
-      case e: Exception => error(
-          "Failed to delete temporary folder for uploading " +
-            s"${KyuubiApplicationManager.tempDirForUpload}",
-          e)
     }
   }
 }
@@ -116,13 +103,13 @@ object KyuubiApplicationManager {
     conf.set("spark.kubernetes.driver.label." + LABEL_KYUUBI_UNIQUE_KEY, tag)
   }
 
-  private def setupFlinkK8sTag(tag: String, conf: KyuubiConf): Unit = {
-    val originalTag = conf.getOption(FlinkProcessBuilder.TAG_KEY).map(_ + ",").getOrElse("")
+  private def setupFlinkYarnTag(tag: String, conf: KyuubiConf): Unit = {
+    val originalTag = conf.getOption(FlinkProcessBuilder.YARN_TAG_KEY).map(_ + ",").getOrElse("")
     val newTag = s"${originalTag}KYUUBI" + Some(tag).filterNot(_.isEmpty).map("," + _).getOrElse("")
-    conf.set(FlinkProcessBuilder.TAG_KEY, newTag)
+    conf.set(FlinkProcessBuilder.YARN_TAG_KEY, newTag)
   }
 
-  lazy val tempDirForUpload: Path = {
+  val uploadWorkDir: Path = {
     val path = Utils.getAbsolutePathFromWork("upload")
     val pathFile = path.toFile
     if (!pathFile.exists()) {
@@ -187,9 +174,9 @@ object KyuubiApplicationManager {
         // if the master is not identified ahead, add all tags
         setupSparkYarnTag(applicationTag, conf)
         setupSparkK8sTag(applicationTag, conf)
-      case ("FLINK", _) =>
+      case ("FLINK", Some("YARN")) =>
         // running flink on other platforms is not yet supported
-        setupFlinkK8sTag(applicationTag, conf)
+        setupFlinkYarnTag(applicationTag, conf)
       // other engine types are running locally yet
       case _ =>
     }

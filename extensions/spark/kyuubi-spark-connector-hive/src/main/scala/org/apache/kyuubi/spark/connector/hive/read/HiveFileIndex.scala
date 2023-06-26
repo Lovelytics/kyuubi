@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogTablePartitio
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BoundReference, Expression, Predicate}
 import org.apache.spark.sql.connector.catalog.CatalogPlugin
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.hive.kyuubi.connector.HiveBridgeHelper.hiveClientImpl
+import org.apache.spark.sql.hive.kyuubi.connector.HiveBridgeHelper.HiveClientImpl
 import org.apache.spark.sql.types.StructType
 
 import org.apache.kyuubi.spark.connector.hive.{HiveTableCatalog, KyuubiHiveConnectorException}
@@ -50,7 +50,7 @@ class HiveCatalogFileIndex(
 
   private val fileStatusCache = FileStatusCache.getOrCreate(sparkSession)
 
-  private lazy val hiveTable: Table = hiveClientImpl.toHiveTable(table)
+  private lazy val hiveTable: Table = HiveClientImpl.toHiveTable(table)
 
   private val baseLocation: Option[URI] = table.storage.locationUri
 
@@ -80,7 +80,7 @@ class HiveCatalogFileIndex(
       val partitions = selectedPartitions.map {
         case BindPartition(catalogTablePartition, hivePartition) =>
           val path = new Path(catalogTablePartition.location)
-          val fs = path.getFileSystem(hadoopConf)
+          val fs = path.getFileSystem(hiveCatalog.hadoopConfiguration())
           val partPath = PartitionPath(
             catalogTablePartition.toRow(
               partitionSchema,
@@ -111,7 +111,7 @@ class HiveCatalogFileIndex(
   }
 
   private def buildBindPartition(partition: CatalogTablePartition): BindPartition =
-    BindPartition(partition, hiveClientImpl.toHivePartition(partition, hiveTable))
+    BindPartition(partition, HiveClientImpl.toHivePartition(partition, hiveTable))
 
   override def partitionSpec(): PartitionSpec = {
     throw notSupportOperator("partitionSpec")

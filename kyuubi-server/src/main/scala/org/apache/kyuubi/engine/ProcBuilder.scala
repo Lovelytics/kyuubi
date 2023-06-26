@@ -118,7 +118,7 @@ trait ProcBuilder {
     env.get("KYUUBI_WORK_DIR_ROOT").map { root =>
       val workingRoot = Paths.get(root).toAbsolutePath
       if (!Files.exists(workingRoot)) {
-        debug(s"Creating KYUUBI_WORK_DIR_ROOT at $workingRoot")
+        info(s"Creating KYUUBI_WORK_DIR_ROOT at $workingRoot")
         Files.createDirectories(workingRoot)
       }
       if (Files.isDirectory(workingRoot)) {
@@ -127,7 +127,7 @@ trait ProcBuilder {
     }.map { rootAbs =>
       val working = Paths.get(rootAbs, proxyUser)
       if (!Files.exists(working)) {
-        debug(s"Creating $proxyUser's working directory at $working")
+        info(s"Creating $proxyUser's working directory at $working")
         Files.createDirectories(working)
       }
       if (Files.isDirectory(working)) {
@@ -341,6 +341,7 @@ trait ProcBuilder {
 
   def clusterManager(): Option[String] = None
 
+  def appMgrInfo(): ApplicationManagerInfo = ApplicationManagerInfo(None)
 }
 
 object ProcBuilder extends Logging {

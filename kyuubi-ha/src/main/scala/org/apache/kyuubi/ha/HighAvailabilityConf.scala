@@ -21,13 +21,12 @@ import java.time.Duration
 
 import org.apache.hadoop.security.UserGroupInformation
 
-import org.apache.kyuubi.config.{ConfigBuilder, ConfigEntry, KyuubiConf, OptionalConfigEntry}
+import org.apache.kyuubi.config.{ConfigEntry, KyuubiConf, OptionalConfigEntry}
+import org.apache.kyuubi.config.KyuubiConf.buildConf
 import org.apache.kyuubi.ha.client.AuthTypes
 import org.apache.kyuubi.ha.client.RetryPolicies
 
 object HighAvailabilityConf {
-
-  private def buildConf(key: String): ConfigBuilder = KyuubiConf.buildConf(key)
 
   @deprecated("using kyuubi.ha.addresses instead", "1.6.0")
   val HA_ZK_QUORUM: ConfigEntry[String] = buildConf("kyuubi.ha.zookeeper.quorum")
@@ -210,14 +209,14 @@ object HighAvailabilityConf {
       .stringConf
       .createOptional
 
-  val HA_ETCD_SSL_CLINET_CRT_PATH: OptionalConfigEntry[String] =
+  val HA_ETCD_SSL_CLIENT_CRT_PATH: OptionalConfigEntry[String] =
     buildConf("kyuubi.ha.etcd.ssl.client.certificate.path")
       .doc("Where the etcd SSL certificate file is stored.")
       .version("1.6.0")
       .stringConf
       .createOptional
 
-  val HA_ETCD_SSL_CLINET_KEY_PATH: OptionalConfigEntry[String] =
+  val HA_ETCD_SSL_CLIENT_KEY_PATH: OptionalConfigEntry[String] =
     buildConf("kyuubi.ha.etcd.ssl.client.key.path")
       .doc("Where the etcd SSL key file is stored.")
       .version("1.6.0")

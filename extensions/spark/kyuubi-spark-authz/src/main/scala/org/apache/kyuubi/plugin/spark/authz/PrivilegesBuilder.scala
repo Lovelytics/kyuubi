@@ -28,6 +28,7 @@ import org.apache.kyuubi.plugin.spark.authz.OperationType.OperationType
 import org.apache.kyuubi.plugin.spark.authz.PrivilegeObjectActionType._
 import org.apache.kyuubi.plugin.spark.authz.serde._
 import org.apache.kyuubi.plugin.spark.authz.util.AuthZUtils._
+import org.apache.kyuubi.util.reflect.ReflectUtils._
 
 object PrivilegesBuilder {
 
@@ -95,6 +96,12 @@ object PrivilegesBuilder {
         val cols = conditionList ++ sortCols
         buildQuery(s.child, privilegeObjects, projectionList, cols, spark)
 
+      case a: Aggregate =>
+        val aggCols =
+          (a.aggregateExpressions ++ a.groupingExpressions).flatMap(e => collectLeaves(e))
+        val cols = conditionList ++ aggCols
+        buildQuery(a.child, privilegeObjects, projectionList, cols, spark)
+
       case scan if isKnownScan(scan) && scan.resolved =>
         getScanSpec(scan).tables(scan, spark).foreach(mergeProjection(_, scan))
 
@@ -144,7 +151,7 @@ object PrivilegesBuilder {
         }
       } catch {
         case e: Exception =>
-          LOG.warn(tableDesc.error(plan, e))
+          LOG.debug(tableDesc.error(plan, e))
           Nil
       }
     }
@@ -162,7 +169,7 @@ object PrivilegesBuilder {
             }
           } catch {
             case e: Exception =>
-              LOG.warn(databaseDesc.error(plan, e))
+              LOG.debug(databaseDesc.error(plan, e))
           }
         }
         desc.operationType
@@ -193,7 +200,7 @@ object PrivilegesBuilder {
             }
           } catch {
             case e: Exception =>
-              LOG.warn(fd.error(plan, e))
+              LOG.debug(fd.error(plan, e))
           }
         }
         spec.operationType

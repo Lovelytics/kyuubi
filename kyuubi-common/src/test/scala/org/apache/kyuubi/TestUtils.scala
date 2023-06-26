@@ -14,92 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kyuubi
 
-import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Path, StandardOpenOption}
 import java.sql.ResultSet
 
-import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 import com.jakewharton.fliptables.FlipTable
-import com.vladsch.flexmark.formatter.Formatter
-import com.vladsch.flexmark.parser.{Parser, ParserEmulationProfile, PegdownExtensions}
-import com.vladsch.flexmark.profile.pegdown.PegdownOptionsAdapter
-import com.vladsch.flexmark.util.data.{MutableDataHolder, MutableDataSet}
-import com.vladsch.flexmark.util.sequence.SequenceUtils
-import org.scalatest.Assertions.convertToEqualizer
 
 object TestUtils {
-
-  private def formatMarkdown(lines: ArrayBuffer[String]): ArrayBuffer[String] = {
-    def createParserOptions(emulationProfile: ParserEmulationProfile): MutableDataHolder = {
-      PegdownOptionsAdapter.flexmarkOptions(PegdownExtensions.ALL).toMutable
-        .set(Parser.PARSER_EMULATION_PROFILE, emulationProfile)
-    }
-
-    def createFormatterOptions(
-        parserOptions: MutableDataHolder,
-        emulationProfile: ParserEmulationProfile): MutableDataSet = {
-      new MutableDataSet()
-        .set(Parser.EXTENSIONS, Parser.EXTENSIONS.get(parserOptions))
-        .set(Formatter.FORMATTER_EMULATION_PROFILE, emulationProfile)
-    }
-
-    val emulationProfile = ParserEmulationProfile.valueOf("COMMONMARK")
-    val parserOptions = createParserOptions(emulationProfile)
-    val formatterOptions = createFormatterOptions(parserOptions, emulationProfile)
-    val parser = Parser.builder(parserOptions).build
-    val renderer = Formatter.builder(formatterOptions).build
-    val document = parser.parse(lines.mkString(SequenceUtils.EOL))
-    val formattedLines = new ArrayBuffer[String]
-    val formattedLinesAppendable = new Appendable {
-      override def append(csq: CharSequence): Appendable = {
-        if (csq.length() > 0) {
-          formattedLines.append(csq.toString)
-        }
-        this
-      }
-
-      override def append(csq: CharSequence, start: Int, end: Int): Appendable = {
-        append(csq.toString.substring(start, end))
-      }
-
-      override def append(c: Char): Appendable = {
-        append(c.toString)
-      }
-    }
-    renderer.render(document, formattedLinesAppendable)
-    // trim the ending EOL appended by renderer for each line
-    formattedLines.map(str =>
-      if (str.nonEmpty && str.endsWith(SequenceUtils.EOL)) {
-        str.substring(0, str.length - 1)
-      } else {
-        str
-      })
-  }
-
-  def verifyOutput(markdown: Path, newOutput: ArrayBuffer[String], agent: String): Unit = {
-    if (System.getenv("KYUUBI_UPDATE") == "1") {
-      val formatted = formatMarkdown(newOutput)
-      Files.write(
-        markdown,
-        formatted.asJava,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.TRUNCATE_EXISTING)
-    } else {
-      val linesInFile = Files.readAllLines(markdown, StandardCharsets.UTF_8)
-      val formatted = formatMarkdown(newOutput)
-      val hint = s"$markdown out of date, please update doc with " +
-        s"KYUUBI_UPDATE=1 build/mvn clean install -Pflink-provided,spark-provided,hive-provided " +
-        s"-DwildcardSuites=$agent"
-      assert(linesInFile.size() === formatted.size, hint)
-      linesInFile.asScala.zip(formatted).foreach { case (out, in) => assert(out === in, hint) }
-    }
-  }
-
   def displayResultSet(resultSet: ResultSet): Unit = {
     if (resultSet == null) throw new NullPointerException("resultSet == null")
     val resultSetMetaData = resultSet.getMetaData

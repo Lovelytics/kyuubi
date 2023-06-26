@@ -24,6 +24,7 @@ import java.nio.file.{Files, Path, Paths, StandardCopyOption}
 import java.text.SimpleDateFormat
 import java.util.{Date, Properties, TimeZone, UUID}
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.Lock
 
 import scala.collection.JavaConverters._
 import scala.sys.process._
@@ -144,20 +145,6 @@ object Utils extends Logging {
   }
 
   /**
-   * delete file in path with logging
-   * @param filePath path to file for deletion
-   * @param errorMessage message as prefix logging with error exception
-   */
-  def deleteFile(filePath: String, errorMessage: String): Unit = {
-    try {
-      Files.delete(Paths.get(filePath))
-    } catch {
-      case e: Exception =>
-        error(s"$errorMessage: $filePath ", e)
-    }
-  }
-
-  /**
    * Create a temporary directory inside the given parent directory. The directory will be
    * automatically deleted when the VM shuts down.
    */
@@ -234,6 +221,11 @@ object Utils extends Logging {
    * Whether the underlying operating system is Windows.
    */
   val isWindows: Boolean = SystemUtils.IS_OS_WINDOWS
+
+  /**
+   * Whether the underlying operating system is MacOS.
+   */
+  val isMac: Boolean = SystemUtils.IS_OS_MAC
 
   /**
    * Indicates whether Kyuubi is currently running unit tests.
@@ -401,4 +393,28 @@ object Utils extends Logging {
     Option(Thread.currentThread().getContextClassLoader).getOrElse(getKyuubiClassLoader)
 
   def isOnK8s: Boolean = Files.exists(Paths.get("/var/run/secrets/kubernetes.io"))
+
+  /**
+   * Return a nice string representation of the exception. It will call "printStackTrace" to
+   * recursively generate the stack trace including the exception and its causes.
+   */
+  def prettyPrint(e: Throwable): String = {
+    if (e == null) {
+      ""
+    } else {
+      // Use e.printStackTrace here because e.getStackTrace doesn't include the cause
+      val stringWriter = new StringWriter()
+      e.printStackTrace(new PrintWriter(stringWriter))
+      stringWriter.toString
+    }
+  }
+
+  def withLockRequired[T](lock: Lock)(block: => T): T = {
+    try {
+      lock.lock()
+      block
+    } finally {
+      lock.unlock()
+    }
+  }
 }

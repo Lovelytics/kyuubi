@@ -21,6 +21,7 @@ import java.io.File
 import java.net.InetAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
+import java.util.UUID
 
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.hadoop.shaded.com.nimbusds.jose.util.StandardCharset
@@ -28,8 +29,10 @@ import org.apache.hive.service.rpc.thrift.TProtocolVersion
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 
 import org.apache.kyuubi.{BatchTestHelper, RestClientTestHelper, Utils}
+import org.apache.kyuubi.client.util.BatchUtils._
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.ctl.{CtlConf, TestPrematureExit}
+import org.apache.kyuubi.engine.ApplicationManagerInfo
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.session.KyuubiSessionManager
 
@@ -78,7 +81,7 @@ class BatchCliSuite extends RestClientTestHelper with TestPrematureExit with Bat
     }
     sessionManager.getBatchesFromMetadataStore(null, null, null, 0, 0, 0, Int.MaxValue).foreach {
       batch =>
-        sessionManager.applicationManager.killApplication(None, batch.getId)
+        sessionManager.applicationManager.killApplication(ApplicationManagerInfo(None), batch.getId)
         sessionManager.cleanupMetadata(batch.getId)
     }
   }
@@ -256,7 +259,7 @@ class BatchCliSuite extends RestClientTestHelper with TestPrematureExit with Bat
       "kyuubi",
       "kyuubi",
       InetAddress.getLocalHost.getCanonicalHostName,
-      Map.empty,
+      Map(KYUUBI_BATCH_ID_KEY -> UUID.randomUUID().toString),
       newBatchRequest(
         "spark",
         "",
@@ -278,7 +281,7 @@ class BatchCliSuite extends RestClientTestHelper with TestPrematureExit with Bat
       "kyuubi",
       "kyuubi",
       InetAddress.getLocalHost.getCanonicalHostName,
-      Map.empty,
+      Map(KYUUBI_BATCH_ID_KEY -> UUID.randomUUID().toString),
       newBatchRequest(
         "spark",
         "",
@@ -288,7 +291,7 @@ class BatchCliSuite extends RestClientTestHelper with TestPrematureExit with Bat
       "kyuubi",
       "kyuubi",
       InetAddress.getLocalHost.getCanonicalHostName,
-      Map.empty,
+      Map(KYUUBI_BATCH_ID_KEY -> UUID.randomUUID().toString),
       newBatchRequest(
         "spark",
         "",
