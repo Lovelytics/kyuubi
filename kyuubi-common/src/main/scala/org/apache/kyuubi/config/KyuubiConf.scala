@@ -806,6 +806,14 @@ object KyuubiConf {
       .stringConf
       .createOptional
 
+  val AUTHENTICATION_LONG_USERNAME: ConfigEntry[Boolean] =
+    buildConf("kyuubi.authentication.long.username")
+      .doc("When set to true, leaves the entire username " +
+        "without truncating the domain.")
+      .version("1.7.0")
+      .booleanConf
+      .createWithDefault(false)
+
   val AUTHENTICATION_LDAP_URL: OptionalConfigEntry[String] =
     buildConf("kyuubi.authentication.ldap.url")
       .doc("SPACE character separated LDAP connection URL(s).")

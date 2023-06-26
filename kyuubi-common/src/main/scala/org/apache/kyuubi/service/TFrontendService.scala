@@ -31,7 +31,7 @@ import org.apache.thrift.transport.TTransport
 
 import org.apache.kyuubi.{KyuubiSQLException, Logging, Utils}
 import org.apache.kyuubi.Utils.stringifyException
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_CONNECTION_URL_USE_HOSTNAME, SESSION_CLOSE_ON_DISCONNECT}
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_LONG_USERNAME, FRONTEND_CONNECTION_URL_USE_HOSTNAME, SESSION_CLOSE_ON_DISCONNECT}
 import org.apache.kyuubi.config.KyuubiReservedKeys._
 import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle}
 import org.apache.kyuubi.service.authentication.KyuubiAuthenticationFactory
@@ -142,8 +142,11 @@ abstract class TFrontendService(name: String)
    * The session user is the proxy user if proxy user is provided, otherwise is the real user.
    */
   protected def getRealUserAndSessionUser(req: TOpenSessionReq): (String, String) = {
+    val longUsername = conf.get(AUTHENTICATION_LONG_USERNAME)
     val realUser: String =
-      ServiceUtils.getShortName(authFactory.getRemoteUser.getOrElse(req.getUsername))
+      if (longUsername)
+        authFactory.getRemoteUser.getOrElse(req.getUsername)
+      else ServiceUtils.getShortName(authFactory.getRemoteUser.getOrElse(req.getUsername))
     val sessionUser =
       if (req.getConfiguration == null) {
         realUser
