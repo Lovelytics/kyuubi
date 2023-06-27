@@ -277,9 +277,12 @@ final class KyuubiTHttpFrontendService(
   override protected def getRealUserAndSessionUser(req: TOpenSessionReq): (String, String) = {
     val longUsername = conf.get(AUTHENTICATION_LONG_USERNAME)
     val realUser: String =
-      if (longUsername)
+      if (longUsername) {
         Option(SessionManager.getUserName).getOrElse(req.getUsername)
-      else getShortName(Option(SessionManager.getUserName).getOrElse(req.getUsername))
+      }
+      else {
+        getShortName(Option(SessionManager.getUserName).getOrElse(req.getUsername))
+      }
     // using the remote ip address instead of that in proxy http header for authentication
     val ipAddress: String = SessionManager.getIpAddress
     val sessionUser: String = getProxyUser(req.getConfiguration, ipAddress, realUser)
