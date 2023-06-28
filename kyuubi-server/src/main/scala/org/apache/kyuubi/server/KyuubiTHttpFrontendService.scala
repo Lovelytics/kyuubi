@@ -279,8 +279,7 @@ final class KyuubiTHttpFrontendService(
     val realUser: String =
       if (longUsername) {
         Option(SessionManager.getUserName).getOrElse(req.getUsername)
-      }
-      else {
+      } else {
         getShortName(Option(SessionManager.getUserName).getOrElse(req.getUsername))
       }
     // using the remote ip address instead of that in proxy http header for authentication
