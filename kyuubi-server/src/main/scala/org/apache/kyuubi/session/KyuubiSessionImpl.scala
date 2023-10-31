@@ -27,7 +27,7 @@ import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.client.KyuubiSyncThriftClient
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_CREDENTIALS_KEY, KYUUBI_SESSION_SIGN_PUBLICKEY, KYUUBI_SESSION_USER_SIGN}
+import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_CREDENTIALS_KEY, KYUUBI_SESSION_HANDLE_KEY, KYUUBI_SESSION_SIGN_PUBLICKEY, KYUUBI_SESSION_USER_SIGN}
 import org.apache.kyuubi.engine.{EngineRef, KyuubiApplicationManager}
 import org.apache.kyuubi.events.{EventBus, KyuubiSessionEvent}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider._
@@ -53,22 +53,20 @@ class KyuubiSessionImpl(
   override val sessionType: SessionType = SessionType.INTERACTIVE
 
   private[kyuubi] val optimizedConf: Map[String, String] = {
-    val confOverlay = sessionManager.sessionConfAdvisor.getConfOverlay(
+    val confOverlay = sessionManager.sessionConfAdvisor.map(_.getConfOverlay(
       user,
-      normalizedConf.asJava)
+      normalizedConf.asJava).asScala).reduce(_ ++ _)
     if (confOverlay != null) {
-      normalizedConf ++ confOverlay.asScala
+      normalizedConf ++ confOverlay
     } else {
       warn(s"the server plugin return null value for user: $user, ignore it")
       normalizedConf
     }
   }
 
-  // TODO: needs improve the hardcode
   optimizedConf.foreach {
-    case ("use:catalog", _) =>
-    case ("use:database", _) =>
-    case ("kyuubi.engine.pool.size.threshold", _) =>
+    case (USE_CATALOG, _) =>
+    case (USE_DATABASE, _) =>
     case (key, value) => sessionConf.set(key, value)
   }
 
@@ -77,9 +75,10 @@ class KyuubiSessionImpl(
   lazy val engine: EngineRef = new EngineRef(
     sessionConf,
     user,
-    sessionManager.groupProvider.primaryGroup(user, optimizedConf.asJava),
+    sessionManager.groupProvider,
     handle.identifier.toString,
-    sessionManager.applicationManager)
+    sessionManager.applicationManager,
+    sessionManager.engineStartupProcessSemaphore)
   private[kyuubi] val launchEngineOp = sessionManager.operationManager
     .newLaunchEngineOperation(this, sessionConf.get(SESSION_ENGINE_LAUNCH_ASYNC))
 
@@ -105,6 +104,8 @@ class KyuubiSessionImpl(
 
   private var _engineSessionHandle: SessionHandle = _
 
+  private var openSessionError: Option[Throwable] = None
+
   override def open(): Unit = handleSessionException {
     traceMetricsOnOpen()
 
@@ -114,16 +115,18 @@ class KyuubiSessionImpl(
     super.open()
 
     runOperation(launchEngineOp)
+    engineLastAlive = System.currentTimeMillis()
   }
 
   private[kyuubi] def openEngineSession(extraEngineLog: Option[OperationLog] = None): Unit =
     handleSessionException {
       withDiscoveryClient(sessionConf) { discoveryClient =>
-        var openEngineSessionConf = optimizedConf
+        var openEngineSessionConf =
+          optimizedConf ++ Map(KYUUBI_SESSION_HANDLE_KEY -> handle.identifier.toString)
         if (engineCredentials.nonEmpty) {
           sessionConf.set(KYUUBI_ENGINE_CREDENTIALS_KEY, engineCredentials)
           openEngineSessionConf =
-            optimizedConf ++ Map(KYUUBI_ENGINE_CREDENTIALS_KEY -> engineCredentials)
+            openEngineSessionConf ++ Map(KYUUBI_ENGINE_CREDENTIALS_KEY -> engineCredentials)
         }
 
         if (sessionConf.get(SESSION_USER_SIGN_ENABLED)) {
@@ -158,7 +161,7 @@ class KyuubiSessionImpl(
           } catch {
             case e: org.apache.thrift.transport.TTransportException
                 if attempt < maxAttempts && e.getCause.isInstanceOf[java.net.ConnectException] &&
-                  e.getCause.getMessage.contains("Connection refused (Connection refused)") =>
+                  e.getCause.getMessage.contains("Connection refused") =>
               warn(
                 s"Failed to open [${engine.defaultEngineName} $host:$port] after" +
                   s" $attempt/$maxAttempts times, retrying",
@@ -170,6 +173,7 @@ class KyuubiSessionImpl(
                 s"Opening engine [${engine.defaultEngineName} $host:$port]" +
                   s" for $user session failed",
                 e)
+              openSessionError = Some(e)
               throw e
           } finally {
             attempt += 1
@@ -247,7 +251,7 @@ class KyuubiSessionImpl(
     try {
       if (_client != null) _client.closeSession()
     } finally {
-      if (engine != null) engine.close()
+      openSessionError.foreach { _ => if (engine != null) engine.close() }
       sessionEvent.endTime = System.currentTimeMillis()
       EventBus.post(sessionEvent)
       traceMetricsOnClose()
@@ -279,6 +283,44 @@ class KyuubiSessionImpl(
           command)
         runOperation(operation)
       case _ => super.executeStatement(statement, confOverlay, runAsync, queryTimeout)
+    }
+  }
+
+  @volatile private var engineLastAlive: Long = _
+  private val engineAliveTimeout = sessionConf.get(KyuubiConf.ENGINE_ALIVE_TIMEOUT)
+  private val aliveProbeEnabled = sessionConf.get(KyuubiConf.ENGINE_ALIVE_PROBE_ENABLED)
+  private val engineAliveMaxFailCount = sessionConf.get(KyuubiConf.ENGINE_ALIVE_MAX_FAILURES)
+  private var engineAliveFailCount = 0
+
+  def checkEngineConnectionAlive(): Boolean = {
+    try {
+      if (Option(client).exists(_.engineConnectionClosed)) return false
+      if (!aliveProbeEnabled) return true
+      getInfo(TGetInfoType.CLI_DBMS_VER)
+      engineLastAlive = System.currentTimeMillis()
+      engineAliveFailCount = 0
+      true
+    } catch {
+      case e: Throwable =>
+        val now = System.currentTimeMillis()
+        engineAliveFailCount = engineAliveFailCount + 1
+        if (now - engineLastAlive > engineAliveTimeout &&
+          engineAliveFailCount >= engineAliveMaxFailCount) {
+          error(s"The engineRef[${engine.getEngineRefId()}] is marked as not alive "
+            + s"due to a lack of recent successful alive probes. "
+            + s"The time since last successful probe: "
+            + s"${now - engineLastAlive} ms exceeds the timeout of $engineAliveTimeout ms. "
+            + s"The engine has failed $engineAliveFailCount times, "
+            + s"surpassing the maximum failure count of $engineAliveMaxFailCount.")
+          false
+        } else {
+          warn(
+            s"The engineRef[${engine.getEngineRefId()}] alive probe fails, " +
+              s"${now - engineLastAlive} ms exceeds timeout $engineAliveTimeout ms, " +
+              s"and has failed $engineAliveFailCount times.",
+            e)
+          true
+        }
     }
   }
 }

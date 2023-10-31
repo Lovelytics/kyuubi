@@ -21,32 +21,33 @@ import scala.util.control.NonFatal
 
 import org.apache.kyuubi.KyuubiException
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.util.reflect.DynConstructors
 
 private[kyuubi] object PluginLoader {
 
-  def loadSessionConfAdvisor(conf: KyuubiConf): SessionConfAdvisor = {
+  def loadSessionConfAdvisor(conf: KyuubiConf): Seq[SessionConfAdvisor] = {
     val advisorClass = conf.get(KyuubiConf.SESSION_CONF_ADVISOR)
     if (advisorClass.isEmpty) {
-      return new DefaultSessionConfAdvisor()
+      return new DefaultSessionConfAdvisor() :: Nil
     }
-
-    try {
-      Class.forName(advisorClass.get).getConstructor().newInstance()
-        .asInstanceOf[SessionConfAdvisor]
-    } catch {
-      case _: ClassCastException =>
-        throw new KyuubiException(
-          s"Class ${advisorClass.get} is not a child of '${classOf[SessionConfAdvisor].getName}'.")
-      case NonFatal(e) =>
-        throw new IllegalArgumentException(s"Error while instantiating '${advisorClass.get}': ", e)
+    advisorClass.get.map { advisorClassName =>
+      try {
+        DynConstructors.builder.impl(advisorClassName)
+          .buildChecked[SessionConfAdvisor].newInstance()
+      } catch {
+        case _: ClassCastException =>
+          throw new KyuubiException(
+            s"Class $advisorClassName is not a child of '${classOf[SessionConfAdvisor].getName}'.")
+        case NonFatal(e) =>
+          throw new IllegalArgumentException(s"Error while instantiating '$advisorClassName': ", e)
+      }
     }
   }
 
   def loadGroupProvider(conf: KyuubiConf): GroupProvider = {
     val groupProviderClass = conf.get(KyuubiConf.GROUP_PROVIDER)
     try {
-      Class.forName(groupProviderClass).getConstructor().newInstance()
-        .asInstanceOf[GroupProvider]
+      DynConstructors.builder().impl(groupProviderClass).buildChecked[GroupProvider]().newInstance()
     } catch {
       case _: ClassCastException =>
         throw new KyuubiException(

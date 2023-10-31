@@ -17,13 +17,12 @@
 
 package org.apache.kyuubi.zookeeper
 
-import org.apache.curator.framework.CuratorFrameworkFactory
-import org.apache.curator.framework.imps.CuratorFrameworkState
-import org.apache.curator.retry.ExponentialBackoffRetry
-
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.zookeeper.ZookeeperConf.{ZK_CLIENT_PORT, ZK_CLIENT_PORT_ADDRESS}
+import org.apache.kyuubi.shaded.curator.framework.CuratorFrameworkFactory
+import org.apache.kyuubi.shaded.curator.framework.imps.CuratorFrameworkState
+import org.apache.kyuubi.shaded.curator.retry.ExponentialBackoffRetry
+import org.apache.kyuubi.zookeeper.ZookeeperConf.{ZK_CLIENT_PORT, ZK_CLIENT_PORT_ADDRESS, ZK_DATA_DIR, ZK_DATA_LOG_DIR}
 
 class EmbeddedZookeeperSuite extends KyuubiFunSuite {
   private var zkServer: EmbeddedZookeeper = _
@@ -64,5 +63,18 @@ class EmbeddedZookeeperSuite extends KyuubiFunSuite {
       .set(ZK_CLIENT_PORT_ADDRESS, "127.0.0.1")
     zkServer.initialize(conf)
     assert(zkServer.getConnectString.contains("127.0.0.1"))
+  }
+
+  test("relative path from zookeeper config should be in kyuubi_home") {
+    zkServer = new EmbeddedZookeeper()
+    val conf = KyuubiConf()
+      .set(ZK_CLIENT_PORT, 0)
+      .set(ZK_DATA_LOG_DIR, "embedded_zookeeper_log")
+      .set(ZK_DATA_DIR, "/tmp/embedded_zookeeper_data")
+
+    val dataDir = zkServer.resolvePathIfRelative(conf, ZK_DATA_DIR)
+    val dataLogDir = zkServer.resolvePathIfRelative(conf, ZK_DATA_LOG_DIR)
+    assert(dataDir.getAbsolutePath.equals("/tmp/embedded_zookeeper_data"))
+    assert(dataLogDir.getAbsolutePath.contains("/embedded_zookeeper_log"))
   }
 }

@@ -16,33 +16,36 @@
 */}}
 
 {{/*
-Expand the name of the chart.
+A comma separated string of enabled frontend protocols, e.g. "REST,THRIFT_BINARY".
+For details, see 'kyuubi.frontend.protocols': https://kyuubi.readthedocs.io/en/master/configuration/settings.html#frontend
 */}}
-{{- define "kyuubi.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- define "kyuubi.frontend.protocols" -}}
+  {{- $protocols := list }}
+  {{- range $name, $frontend := .Values.server }}
+    {{- if $frontend.enabled }}
+      {{- $protocols = $name | snakecase | upper | append $protocols }}
+    {{- end }}
+  {{- end }}
+  {{- if not $protocols }}
+    {{ fail "At least one frontend protocol must be enabled!" }}
+  {{- end }}
+  {{- $protocols |  join "," }}
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
+Selector labels
 */}}
-{{- define "kyuubi.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+{{- define "kyuubi.selectorLabels" -}}
+app.kubernetes.io/name: {{ .Chart.Name }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
 
 {{/*
-Create chart name and version as used by the chart label.
+Common labels
 */}}
-{{- define "kyuubi.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{- define "kyuubi.labels" -}}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+{{ include "kyuubi.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}

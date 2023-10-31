@@ -17,20 +17,24 @@
 
 package org.apache.kyuubi.operation
 
-import org.apache.kyuubi.IcebergSuiteMixin
-import org.apache.kyuubi.operation.meta.ResultSetSchemaConstant._
-import org.apache.kyuubi.util.SparkVersionUtil.isSparkVersionAtLeast
+import scala.collection.mutable.ListBuffer
 
-trait IcebergMetadataTests extends HiveJDBCTestHelper with IcebergSuiteMixin {
+import org.apache.kyuubi.{IcebergSuiteMixin, SPARK_COMPILE_VERSION}
+import org.apache.kyuubi.operation.meta.ResultSetSchemaConstant._
+import org.apache.kyuubi.util.AssertionUtils._
+import org.apache.kyuubi.util.SparkVersionUtil
+
+trait IcebergMetadataTests extends HiveJDBCTestHelper with IcebergSuiteMixin with SparkVersionUtil {
 
   test("get catalogs") {
     withJdbcStatement() { statement =>
       val metaData = statement.getConnection.getMetaData
       val catalogs = metaData.getCatalogs
-      catalogs.next()
-      assert(catalogs.getString(TABLE_CAT) === "spark_catalog")
-      catalogs.next()
-      assert(catalogs.getString(TABLE_CAT) === catalog)
+      val results = ListBuffer[String]()
+      while (catalogs.next()) {
+        results += catalogs.getString(TABLE_CAT)
+      }
+      assertContains(results, "spark_catalog", catalog)
     }
   }
 
@@ -129,7 +133,7 @@ trait IcebergMetadataTests extends HiveJDBCTestHelper with IcebergSuiteMixin {
             }
             assert(!rs1.next())
           } finally {
-            statement.execute(s"DROP TABLE IF EXISTS $cg.$db.tbl")
+            statement.execute(s"DROP TABLE IF EXISTS $cg.$db.tbl PURGE")
           }
         }
       }
@@ -153,11 +157,11 @@ trait IcebergMetadataTests extends HiveJDBCTestHelper with IcebergSuiteMixin {
       "date",
       "timestamp",
       // SPARK-37931
-      if (isSparkVersionAtLeast("3.3")) "struct<X: bigint, Y: double>"
+      if (SPARK_ENGINE_RUNTIME_VERSION >= "3.3") "struct<X: bigint, Y: double>"
       else "struct<`X`: bigint, `Y`: double>",
       "binary",
       // SPARK-37931
-      if (isSparkVersionAtLeast("3.3")) "struct<X: string>" else "struct<`X`: string>")
+      if (SPARK_COMPILE_VERSION >= "3.3") "struct<X: string>" else "struct<`X`: string>")
     val cols = dataTypes.zipWithIndex.map { case (dt, idx) => s"c$idx" -> dt }
     val (colNames, _) = cols.unzip
 

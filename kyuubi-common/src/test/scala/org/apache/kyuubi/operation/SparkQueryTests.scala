@@ -28,7 +28,6 @@ import org.apache.hive.service.rpc.thrift.{TExecuteStatementReq, TFetchResultsRe
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Utils}
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.util.SparkVersionUtil.isSparkVersionAtLeast
 
 trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
 
@@ -187,7 +186,7 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
     withJdbcStatement("t") { statement =>
       try {
         val assertTableOrViewNotfound: (Exception, String) => Unit = (e, tableName) => {
-          if (isSparkVersionAtLeast("3.4")) {
+          if (SPARK_ENGINE_RUNTIME_VERSION >= "3.4") {
             assert(e.getMessage.contains("[TABLE_OR_VIEW_NOT_FOUND]"))
             assert(e.getMessage.contains(s"The table or view `$tableName` cannot be found."))
           } else {
@@ -219,6 +218,35 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
     }
   }
 
+  test("kyuubi #3444: Plan only mode with lineage mode") {
+
+    val ddl = "create table if not exists t0(a int) using parquet"
+    val dql = "select * from t0"
+    withSessionConf()(Map(KyuubiConf.OPERATION_PLAN_ONLY_MODE.key -> NoneMode.name))() {
+      withJdbcStatement("t0") { statement =>
+        statement.execute(ddl)
+        statement.execute("SET kyuubi.operation.plan.only.mode=lineage")
+        val lineageParserClassName = "org.apache.kyuubi.plugin.lineage.LineageParserProvider"
+
+        try {
+          val resultSet = statement.executeQuery(dql)
+          assert(resultSet.next())
+          val actualResult =
+            """
+              |{"inputTables":["spark_catalog.default.t0"],"outputTables":[],
+              |"columnLineage":[{"column":"a","originalColumns":["spark_catalog.default.t0.a"]}]}
+              |""".stripMargin.split("\n").mkString("")
+          assert(resultSet.getString(1) == actualResult)
+        } catch {
+          case e: Throwable =>
+            assert(e.getMessage.contains(s"'$lineageParserClassName' not found"))
+        } finally {
+          statement.execute("SET kyuubi.operation.plan.only.mode=none")
+        }
+      }
+    }
+  }
+
   test("execute simple scala code") {
     withJdbcStatement() { statement =>
       statement.execute("SET kyuubi.operation.language=scala")
@@ -242,7 +270,7 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
           |""".stripMargin
       val rs1 = statement.executeQuery(code)
       rs1.next()
-      assert(rs1.getString(1) startsWith "df: org.apache.spark.sql.DataFrame")
+      assert(rs1.getString(1) contains "df: org.apache.spark.sql.DataFrame")
 
       // continue
       val rs2 = statement.executeQuery("df.count()")
@@ -283,7 +311,7 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
           |""".stripMargin
       val rs5 = statement.executeQuery(code2)
       rs5.next()
-      assert(rs5.getString(1) startsWith "df: org.apache.spark.sql.DataFrame")
+      assert(rs5.getString(1) contains "df: org.apache.spark.sql.DataFrame")
 
       // re-assign
       val rs6 = statement.executeQuery("result.set(df)")
@@ -384,7 +412,7 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
         rs.next()
         // scalastyle:off
         println(rs.getString(1))
-      // scalastyle:on
+        // scalastyle:on
       }
 
       val code1 = s"""spark.sql("add jar " + jarPath)"""
@@ -392,7 +420,7 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
       statement.execute(code1)
       val rs = statement.executeQuery(code2)
       rs.next()
-      assert(rs.getString(1) == "x: Int = 3")
+      assert(rs.getString(1) contains "x: Int = 3")
     }
   }
 
@@ -433,13 +461,13 @@ trait SparkQueryTests extends SparkDataTypeTests with HiveJDBCTestHelper {
         expectedFormat = "thrift")
       checkStatusAndResultSetFormatHint(
         sql = "set kyuubi.operation.result.format=arrow",
-        expectedFormat = "arrow")
+        expectedFormat = "thrift")
       checkStatusAndResultSetFormatHint(
         sql = "SELECT 1",
         expectedFormat = "arrow")
       checkStatusAndResultSetFormatHint(
         sql = "set kyuubi.operation.result.format=thrift",
-        expectedFormat = "thrift")
+        expectedFormat = "arrow")
       checkStatusAndResultSetFormatHint(
         sql = "set kyuubi.operation.result.format",
         expectedFormat = "thrift")

@@ -26,8 +26,11 @@ import org.slf4j.LoggerFactory
 
 import org.apache.kyuubi.plugin.spark.authz.OperationType.OperationType
 import org.apache.kyuubi.plugin.spark.authz.PrivilegeObjectActionType._
+import org.apache.kyuubi.plugin.spark.authz.rule.Authorization.KYUUBI_AUTHZ_TAG
+import org.apache.kyuubi.plugin.spark.authz.rule.permanentview.PermanentViewMarker
 import org.apache.kyuubi.plugin.spark.authz.serde._
 import org.apache.kyuubi.plugin.spark.authz.util.AuthZUtils._
+import org.apache.kyuubi.util.reflect.ReflectUtils._
 
 object PrivilegesBuilder {
 
@@ -63,7 +66,13 @@ object PrivilegesBuilder {
 
     def mergeProjection(table: Table, plan: LogicalPlan): Unit = {
       if (projectionList.isEmpty) {
-        privilegeObjects += PrivilegeObject(table, plan.output.map(_.name))
+        plan match {
+          case pvm: PermanentViewMarker
+              if pvm.isSubqueryExpressionPlaceHolder || pvm.output.isEmpty =>
+            privilegeObjects += PrivilegeObject(table, pvm.outputColNames)
+          case _ =>
+            privilegeObjects += PrivilegeObject(table, plan.output.map(_.name))
+        }
       } else {
         val cols = (projectionList ++ conditionList).flatMap(collectLeaves)
           .filter(plan.outputSet.contains).map(_.name).distinct
@@ -72,6 +81,8 @@ object PrivilegesBuilder {
     }
 
     plan match {
+      case p if p.getTagValue(KYUUBI_AUTHZ_TAG).nonEmpty =>
+
       case p: Project => buildQuery(p.child, privilegeObjects, p.projectList, conditionList, spark)
 
       case j: Join =>
@@ -94,6 +105,12 @@ object PrivilegesBuilder {
         val sortCols = s.order.flatMap(sortOrder => collectLeaves(sortOrder))
         val cols = conditionList ++ sortCols
         buildQuery(s.child, privilegeObjects, projectionList, cols, spark)
+
+      case a: Aggregate =>
+        val aggCols =
+          (a.aggregateExpressions ++ a.groupingExpressions).flatMap(e => collectLeaves(e))
+        val cols = conditionList ++ aggCols
+        buildQuery(a.child, privilegeObjects, projectionList, cols, spark)
 
       case scan if isKnownScan(scan) && scan.resolved =>
         getScanSpec(scan).tables(scan, spark).foreach(mergeProjection(_, scan))
@@ -144,7 +161,7 @@ object PrivilegesBuilder {
         }
       } catch {
         case e: Exception =>
-          LOG.warn(tableDesc.error(plan, e))
+          LOG.debug(tableDesc.error(plan, e))
           Nil
       }
     }
@@ -162,7 +179,7 @@ object PrivilegesBuilder {
             }
           } catch {
             case e: Exception =>
-              LOG.warn(databaseDesc.error(plan, e))
+              LOG.debug(databaseDesc.error(plan, e))
           }
         }
         desc.operationType
@@ -174,6 +191,23 @@ object PrivilegesBuilder {
             inputObjs ++= getTablePriv(td)
           } else {
             outputObjs ++= getTablePriv(td)
+          }
+        }
+        spec.uriDescs.foreach { ud =>
+          try {
+            val uri = ud.extract(plan)
+            uri match {
+              case Some(uri) =>
+                if (ud.isInput) {
+                  inputObjs += PrivilegeObject(uri)
+                } else {
+                  outputObjs += PrivilegeObject(uri)
+                }
+              case None =>
+            }
+          } catch {
+            case e: Exception =>
+              LOG.debug(ud.error(plan, e))
           }
         }
         spec.queries(plan).foreach(buildQuery(_, inputObjs, spark = spark))
@@ -193,7 +227,7 @@ object PrivilegesBuilder {
             }
           } catch {
             case e: Exception =>
-              LOG.warn(fd.error(plan, e))
+              LOG.debug(fd.error(plan, e))
           }
         }
         spec.operationType
@@ -202,7 +236,39 @@ object PrivilegesBuilder {
     }
   }
 
-  type PrivilegesAndOpType = (Seq[PrivilegeObject], Seq[PrivilegeObject], OperationType)
+  type PrivilegesAndOpType = (Iterable[PrivilegeObject], Iterable[PrivilegeObject], OperationType)
+
+  /**
+   * Build input  privilege objects from a Spark's LogicalPlan for hive permanent udf
+   *
+   * @param plan      A Spark LogicalPlan
+   */
+  def buildFunctions(
+      plan: LogicalPlan,
+      spark: SparkSession): PrivilegesAndOpType = {
+    val inputObjs = new ArrayBuffer[PrivilegeObject]
+    plan match {
+      case command: Command if isKnownTableCommand(command) =>
+        val spec = getTableCommandSpec(command)
+        val functionPrivAndOpType = spec.queries(plan)
+          .map(plan => buildFunctions(plan, spark))
+        functionPrivAndOpType.map(_._1)
+          .reduce(_ ++ _)
+          .foreach(functionPriv => inputObjs += functionPriv)
+
+      case plan => plan transformAllExpressions {
+          case hiveFunction: Expression if isKnownFunction(hiveFunction) =>
+            val functionSpec: ScanSpec = getFunctionSpec(hiveFunction)
+            if (functionSpec.functionDescs
+                .exists(!_.functionTypeDesc.get.skip(hiveFunction, spark))) {
+              functionSpec.functions(hiveFunction).foreach(func =>
+                inputObjs += PrivilegeObject(func))
+            }
+            hiveFunction
+        }
+    }
+    (inputObjs, Seq.empty, OperationType.QUERY)
+  }
 
   /**
    * Build input and output privilege objects from a Spark's LogicalPlan

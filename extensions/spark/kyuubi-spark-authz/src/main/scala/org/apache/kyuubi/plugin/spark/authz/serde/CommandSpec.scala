@@ -19,6 +19,7 @@ package org.apache.kyuubi.plugin.spark.authz.serde
 
 import com.fasterxml.jackson.annotation.JsonIgnore
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.slf4j.LoggerFactory
 
@@ -40,6 +41,10 @@ trait CommandSpec extends {
   def classname: String
   def opType: String
   final def operationType: OperationType = OperationType.withName(opType)
+}
+
+trait CommandSpecs[T <: CommandSpec] {
+  def specs: Seq[T]
 }
 
 /**
@@ -78,14 +83,15 @@ case class TableCommandSpec(
     classname: String,
     tableDescs: Seq[TableDesc],
     opType: String = OperationType.QUERY.toString,
-    queryDescs: Seq[QueryDesc] = Nil) extends CommandSpec {
+    queryDescs: Seq[QueryDesc] = Nil,
+    uriDescs: Seq[UriDesc] = Nil) extends CommandSpec {
   def queries: LogicalPlan => Seq[LogicalPlan] = plan => {
     queryDescs.flatMap { qd =>
       try {
         qd.extract(plan)
       } catch {
         case e: Exception =>
-          LOG.warn(qd.error(plan, e))
+          LOG.debug(qd.error(plan, e))
           None
       }
     }
@@ -94,7 +100,8 @@ case class TableCommandSpec(
 
 case class ScanSpec(
     classname: String,
-    scanDescs: Seq[ScanDesc]) extends CommandSpec {
+    scanDescs: Seq[ScanDesc],
+    functionDescs: Seq[FunctionDesc] = Seq.empty) extends CommandSpec {
   override def opType: String = OperationType.QUERY.toString
   def tables: (LogicalPlan, SparkSession) => Seq[Table] = (plan, spark) => {
     scanDescs.flatMap { td =>
@@ -102,7 +109,19 @@ case class ScanSpec(
         td.extract(plan, spark)
       } catch {
         case e: Exception =>
-          LOG.warn(td.error(plan, e))
+          LOG.debug(td.error(plan, e))
+          None
+      }
+    }
+  }
+
+  def functions: (Expression) => Seq[Function] = (expr) => {
+    functionDescs.flatMap { fd =>
+      try {
+        Some(fd.extract(expr))
+      } catch {
+        case e: Exception =>
+          LOG.debug(fd.error(expr, e))
           None
       }
     }

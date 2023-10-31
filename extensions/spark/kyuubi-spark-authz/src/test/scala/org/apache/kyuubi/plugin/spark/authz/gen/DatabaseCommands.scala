@@ -20,7 +20,7 @@ package org.apache.kyuubi.plugin.spark.authz.gen
 import org.apache.kyuubi.plugin.spark.authz.OperationType._
 import org.apache.kyuubi.plugin.spark.authz.serde._
 
-object DatabaseCommands {
+object DatabaseCommands extends CommandSpecs[DatabaseCommandSpec] {
 
   val AlterDatabaseProperties = {
     DatabaseCommandSpec(
@@ -58,9 +58,10 @@ object DatabaseCommands {
         "namespace",
         classOf[StringSeqDatabaseExtractor],
         catalogDesc = Some(CatalogDesc()))
+    val databaseDesc3 = DatabaseDesc("name", classOf[ResolvedNamespaceDatabaseExtractor])
     DatabaseCommandSpec(
       "org.apache.spark.sql.catalyst.plans.logical.CreateNamespace",
-      Seq(databaseDesc1, databaseDesc2),
+      Seq(databaseDesc1, databaseDesc2, databaseDesc3),
       CREATEDATABASE)
   }
 
@@ -97,12 +98,12 @@ object DatabaseCommands {
 
   val SetCatalogAndNamespace = {
     val cmd = "org.apache.spark.sql.catalyst.plans.logical.SetCatalogAndNamespace"
-    val databaseDesc1 =
+    val resolvedDbObjectDatabaseDesc =
       DatabaseDesc(
         "child",
         classOf[ResolvedDBObjectNameDatabaseExtractor],
         isInput = true)
-    val databaseDesc2 =
+    val stringSeqOptionDatabaseDesc =
       DatabaseDesc(
         "namespace",
         classOf[StringSeqOptionDatabaseExtractor],
@@ -110,7 +111,15 @@ object DatabaseCommands {
           fieldName = "catalogName",
           fieldExtractor = classOf[StringOptionCatalogExtractor])),
         isInput = true)
-    DatabaseCommandSpec(cmd, Seq(databaseDesc1, databaseDesc2), SWITCHDATABASE)
+    val resolvedNamespaceDatabaseDesc =
+      DatabaseDesc(
+        "child",
+        classOf[ResolvedNamespaceDatabaseExtractor],
+        isInput = true)
+    DatabaseCommandSpec(
+      cmd,
+      Seq(resolvedNamespaceDatabaseDesc, resolvedDbObjectDatabaseDesc, stringSeqOptionDatabaseDesc),
+      SWITCHDATABASE)
   }
 
   val SetNamespace = {
@@ -132,7 +141,7 @@ object DatabaseCommands {
     DatabaseCommandSpec(cmd, Seq(databaseDesc), DESCDATABASE)
   }
 
-  val data: Array[DatabaseCommandSpec] = Array(
+  override def specs: Seq[DatabaseCommandSpec] = Seq(
     AlterDatabaseProperties,
     AlterDatabaseProperties.copy(
       classname = "org.apache.spark.sql.execution.command.AlterDatabaseSetLocationCommand",
