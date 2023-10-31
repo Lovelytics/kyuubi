@@ -61,4 +61,4 @@ jobs:
             REPO_NAME: ndap/kyuubi
         run: |
           aws ecr describe-repositories --repository-names ${REPO_NAME} || aws ecr create-repository --repository-name ${REPO_NAME}
-          docker push $ECR_REGISTRY/$REPO_NAME:1.7.0-spark${{ matrix.spark-version }}
+          docker push $ECR_REGISTRY/$REPO_NAME:1.9.0-spark${{ matrix.spark-version }}
