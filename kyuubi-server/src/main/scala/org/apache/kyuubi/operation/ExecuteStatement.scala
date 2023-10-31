@@ -25,6 +25,7 @@ import org.apache.hive.service.rpc.thrift.TOperationState._
 
 import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.config.KyuubiConf.OPERATION_QUERY_TIMEOUT_MONITOR_ENABLED
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.operation.FetchOrientation.FETCH_NEXT
 import org.apache.kyuubi.operation.log.OperationLog
@@ -58,12 +59,17 @@ class ExecuteStatement(
     OperationLog.removeCurrentOperationLog()
   }
 
+  private val isTimeoutMonitorEnabled: Boolean = confOverlay.getOrElse[String](
+    OPERATION_QUERY_TIMEOUT_MONITOR_ENABLED.key,
+    OPERATION_QUERY_TIMEOUT_MONITOR_ENABLED.defaultValStr).toBoolean
+
   private def executeStatement(): Unit = {
     try {
       // We need to avoid executing query in sync mode, because there is no heartbeat mechanism
       // in thrift protocol, in sync mode, we cannot distinguish between long-run query and
       // engine crash without response before socket read timeout.
-      _remoteOpHandle = client.executeStatement(statement, confOverlay, true, queryTimeout)
+      _remoteOpHandle =
+        client.executeStatement(statement, confOverlay ++ operationHandleConf, true, queryTimeout)
       setHasResultSet(_remoteOpHandle.isHasResultSet)
     } catch onError()
   }
@@ -83,7 +89,7 @@ class ExecuteStatement(
       var lastStateUpdateTime: Long = 0L
       val stateUpdateInterval =
         session.sessionManager.getConf.get(KyuubiConf.OPERATION_STATUS_UPDATE_INTERVAL)
-      while (!isComplete) {
+      while (!isComplete && !isTerminalState(state)) {
         fetchQueryLog()
         verifyTStatus(statusResp.getStatus)
         if (statusResp.getProgressUpdateResponse != null) {
@@ -142,6 +148,9 @@ class ExecuteStatement(
       // see if anymore log could be fetched
       fetchQueryLog()
     } catch onError()
+    finally {
+      shutdownTimeoutMonitor()
+    }
 
   private def fetchQueryLog(): Unit = {
     getOperationLog.foreach { logger =>
@@ -156,6 +165,9 @@ class ExecuteStatement(
   }
 
   override protected def runInternal(): Unit = {
+    if (isTimeoutMonitorEnabled) {
+      addTimeoutMonitor(queryTimeout)
+    }
     executeStatement()
     val sessionManager = session.sessionManager
     val asyncOperation: Runnable = () => waitStatementComplete()

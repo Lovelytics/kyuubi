@@ -17,9 +17,10 @@
 
 import { createRouter, createWebHistory } from 'vue-router'
 import overviewRoutes from './overview'
-import workloadRoutes from './workload'
-import operationRoutes from './operation'
-import contactRoutes from './contact'
+import managementRoutes from './management'
+import detailRoutes from './detail'
+import swaggerRoutes from './swagger'
+import labRoutes from './lab'
 
 const routes = [
   {
@@ -32,19 +33,20 @@ const routes = [
   {
     path: '/layout',
     name: 'layout',
-    component: () => import('@/views/layout/index.vue'),
+    component: () => import('@/layout/index.vue'),
     redirect: 'overview',
     children: [
       ...overviewRoutes,
-      ...workloadRoutes,
-      ...operationRoutes,
-      ...contactRoutes
+      ...managementRoutes,
+      ...detailRoutes,
+      ...swaggerRoutes,
+      ...labRoutes
     ]
   }
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory('/ui'),
   routes
 })
 

@@ -17,11 +17,10 @@
 
 package org.apache.kyuubi.zookeeper
 
-import org.apache.kyuubi.config.{ConfigBuilder, ConfigEntry, KyuubiConf, OptionalConfigEntry}
+import org.apache.kyuubi.config.{ConfigEntry, OptionalConfigEntry}
+import org.apache.kyuubi.config.KyuubiConf.buildConf
 
 object ZookeeperConf {
-
-  private def buildConf(key: String): ConfigBuilder = KyuubiConf.buildConf(key)
 
   @deprecated("using kyuubi.zookeeper.embedded.client.port instead", since = "1.2.0")
   val EMBEDDED_ZK_PORT: ConfigEntry[Int] = buildConf("kyuubi.zookeeper.embedded.port")
@@ -32,7 +31,8 @@ object ZookeeperConf {
 
   @deprecated("using kyuubi.zookeeper.embedded.data.dir instead", since = "1.2.0")
   val EMBEDDED_ZK_TEMP_DIR: ConfigEntry[String] = buildConf("kyuubi.zookeeper.embedded.directory")
-    .doc("The temporary directory for the embedded ZooKeeper server")
+    .doc("The temporary directory for the embedded ZooKeeper server. " +
+      "If it is a relative path, it is resolved relative to KYUUBI_HOME. ")
     .version("1.0.0")
     .stringConf
     .createWithDefault("embedded_zookeeper")
@@ -50,14 +50,23 @@ object ZookeeperConf {
       .stringConf
       .createOptional
 
+  val ZK_CLIENT_USE_HOSTNAME: ConfigEntry[Boolean] =
+    buildConf("kyuubi.zookeeper.embedded.client.use.hostname")
+      .doc("When true, embedded Zookeeper prefer to bind hostname, otherwise, ip address.")
+      .version("1.7.2")
+      .booleanConf
+      .createWithDefault(false)
+
   val ZK_DATA_DIR: ConfigEntry[String] = buildConf("kyuubi.zookeeper.embedded.data.dir")
     .doc("dataDir for the embedded zookeeper server where stores the in-memory database" +
-      " snapshots and, unless specified otherwise, the transaction log of updates to the database.")
+      " snapshots and, unless specified otherwise, the transaction log of updates to the" +
+      " database. If it is a relative path, it is resolved relative to KYUUBI_HOME.")
     .version("1.2.0")
     .fallbackConf(EMBEDDED_ZK_TEMP_DIR)
 
   val ZK_DATA_LOG_DIR: ConfigEntry[String] = buildConf("kyuubi.zookeeper.embedded.data.log.dir")
-    .doc("dataLogDir for the embedded ZooKeeper server where writes the transaction log .")
+    .doc("dataLogDir for the embedded ZooKeeper server where writes the transaction log. " +
+      "If it is a relative path, it is resolved relative to KYUUBI_HOME.")
     .version("1.2.0")
     .fallbackConf(ZK_DATA_DIR)
 

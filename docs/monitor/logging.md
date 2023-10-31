@@ -114,7 +114,7 @@ For example, we can disable the console appender and enable the file appender li
 <Configuration status="INFO">
   <Appenders>
     <File name="fa" fileName="log/dummy.log">
-      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %p %c: %m%n"/>
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %p %c: %m%n%ex"/>
       <Filters>
         <RegexFilter regex=".*Thrift error occurred during processing of message.*" onMatch="DENY" onMismatch="NEUTRAL"/>
       </Filters>
@@ -265,5 +265,5 @@ You will both get the final results and the corresponding operation logs telling
 - [Monitoring Kyuubi - Server Metrics](metrics.md)
 - [Trouble Shooting](trouble_shooting.md)
 - Spark Online Documentation
-  - [Monitoring and Instrumentation](http://spark.apache.org/docs/latest/monitoring.html)
+  - [Monitoring and Instrumentation](https://spark.apache.org/docs/latest/monitoring.html)
 

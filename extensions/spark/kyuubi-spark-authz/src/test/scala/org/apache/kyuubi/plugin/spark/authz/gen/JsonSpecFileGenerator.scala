@@ -18,37 +18,67 @@
 package org.apache.kyuubi.plugin.spark.authz.gen
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Paths}
+import java.nio.file.{Files, Paths, StandardOpenOption}
+
+//scalastyle:off
+import org.scalatest.funsuite.AnyFunSuite
 
 import org.apache.kyuubi.plugin.spark.authz.serde.{mapper, CommandSpec}
+import org.apache.kyuubi.plugin.spark.authz.serde.CommandSpecs
+import org.apache.kyuubi.util.AssertionUtils._
 
 /**
  * Generates the default command specs to src/main/resources dir.
  *
- * Usage:
- * mvn scala:run -DmainClass=this class -pl :kyuubi-spark-authz_2.12
+ * To run the test suite:
+ * {{{
+ *   KYUUBI_UPDATE=0 dev/gen/gen_ranger_spec_json.sh
+ * }}}
+ *
+ * To regenerate the ranger policy file:
+ * {{{
+ *   dev/gen/gen_ranger_spec_json.sh
+ * }}}
  */
-object JsonSpecFileGenerator {
-
-  def main(args: Array[String]): Unit = {
-    writeCommandSpecJson("database", DatabaseCommands.data)
-    writeCommandSpecJson("table", TableCommands.data ++ IcebergCommands.data)
-    writeCommandSpecJson("function", FunctionCommands.data)
-    writeCommandSpecJson("scan", Scans.data)
+class JsonSpecFileGenerator extends AnyFunSuite {
+  // scalastyle:on
+  test("check spec json files") {
+    writeCommandSpecJson("database", Seq(DatabaseCommands))
+    writeCommandSpecJson("table", Seq(TableCommands, IcebergCommands, HudiCommands, DeltaCommands))
+    writeCommandSpecJson("function", Seq(FunctionCommands))
+    writeCommandSpecJson("scan", Seq(Scans))
   }
 
-  def writeCommandSpecJson[T <: CommandSpec](commandType: String, specArr: Array[T]): Unit = {
+  def writeCommandSpecJson[T <: CommandSpec](
+      commandType: String,
+      specsArr: Seq[CommandSpecs[T]]): Unit = {
     val pluginHome = getClass.getProtectionDomain.getCodeSource.getLocation.getPath
       .split("target").head
     val filename = s"${commandType}_command_spec.json"
-    val writer = {
-      val p = Paths.get(pluginHome, "src", "main", "resources", filename)
-      Files.newBufferedWriter(p, StandardCharsets.UTF_8)
+    val filePath = Paths.get(pluginHome, "src", "main", "resources", filename)
+
+    val allSpecs = specsArr.flatMap(_.specs.sortBy(_.classname))
+    val duplicatedClassnames = allSpecs.groupBy(_.classname).values
+      .filter(_.size > 1).flatMap(specs => specs.map(_.classname)).toSet
+    withClue(s"Unexpected duplicated classnames: $duplicatedClassnames")(
+      assertResult(0)(duplicatedClassnames.size))
+    val generatedStr = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(allSpecs)
+
+    if (sys.env.get("KYUUBI_UPDATE").contains("1")) {
+      // scalastyle:off println
+      println(s"writing ${allSpecs.length} specs to $filename")
+      // scalastyle:on println
+      Files.write(
+        filePath,
+        generatedStr.getBytes(StandardCharsets.UTF_8),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING)
+    } else {
+      assertFileContent(
+        filePath,
+        Seq(generatedStr),
+        "dev/gen/gen_ranger_spec_json.sh",
+        splitFirstExpectedLine = true)
     }
-    // scalastyle:off println
-    println(s"writing ${specArr.length} specs to $filename")
-    // scalastyle:on println
-    mapper.writerWithDefaultPrettyPrinter().writeValue(writer, specArr.sortBy(_.classname))
-    writer.close()
   }
 }

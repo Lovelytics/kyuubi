@@ -26,6 +26,7 @@ import org.apache.thrift.TException
 import org.apache.thrift.transport.TTransportException
 
 import org.apache.kyuubi.{KyuubiSQLException, Utils}
+import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_OPERATION_HANDLE_KEY
 import org.apache.kyuubi.events.{EventBus, KyuubiOperationEvent}
 import org.apache.kyuubi.metrics.MetricsConstants.{OPERATION_FAIL, OPERATION_OPEN, OPERATION_STATE, OPERATION_TOTAL}
 import org.apache.kyuubi.metrics.MetricsSystem
@@ -46,9 +47,26 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
 
   protected[operation] lazy val client = session.asInstanceOf[KyuubiSessionImpl].client
 
+  protected val operationHandleConf = Map(KYUUBI_OPERATION_HANDLE_KEY -> handle.identifier.toString)
+
   @volatile protected var _remoteOpHandle: TOperationHandle = _
 
   def remoteOpHandle(): TOperationHandle = _remoteOpHandle
+
+  @volatile protected var _fetchLogCount = 0L
+  @volatile protected var _fetchResultsCount = 0L
+
+  protected[kyuubi] def increaseFetchLogCount(count: Int): Unit = {
+    _fetchLogCount += count
+  }
+
+  protected[kyuubi] def increaseFetchResultsCount(count: Int): Unit = {
+    _fetchResultsCount += count
+  }
+
+  def metrics: Map[String, String] = Map(
+    "fetchLogCount" -> _fetchLogCount.toString,
+    "fetchResultsCount" -> _fetchResultsCount.toString)
 
   protected def verifyTStatus(tStatus: TStatus): Unit = {
     ThriftUtils.verifyTStatus(tStatus)
@@ -56,7 +74,7 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
 
   protected def onError(action: String = "operating"): PartialFunction[Throwable, Unit] = {
     case e: Throwable =>
-      state.synchronized {
+      withLockRequired {
         if (isTerminalState(state)) {
           warn(s"Ignore exception in terminal state with $statementId", e)
         } else {
@@ -98,14 +116,14 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
   }
 
   override protected def afterRun(): Unit = {
-    state.synchronized {
+    withLockRequired {
       if (!isTerminalState(state)) {
         setState(OperationState.FINISHED)
       }
     }
   }
 
-  override def cancel(): Unit = state.synchronized {
+  override def cancel(): Unit = withLockRequired {
     if (!isClosedOrCanceled) {
       setState(OperationState.CANCELED)
       MetricsSystem.tracing(_.decCount(MetricRegistry.name(OPERATION_OPEN, opType)))
@@ -120,17 +138,10 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
     }
   }
 
-  override def close(): Unit = state.synchronized {
+  override def close(): Unit = withLockRequired {
     if (!isClosedOrCanceled) {
       setState(OperationState.CLOSED)
       MetricsSystem.tracing(_.decCount(MetricRegistry.name(OPERATION_OPEN, opType)))
-      try {
-        // For launch engine operation, we use OperationLog to pass engine submit log but
-        // at that time we do not have remoteOpHandle
-        getOperationLog.foreach(_.close())
-      } catch {
-        case e: IOException => error(e.getMessage, e)
-      }
       if (_remoteOpHandle != null) {
         try {
           client.closeOperation(_remoteOpHandle)
@@ -139,6 +150,13 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
             warn(s"Error closing ${_remoteOpHandle.getOperationId}: ${e.getMessage}", e)
         }
       }
+    }
+    try {
+      // For launch engine operation, we use OperationLog to pass engine submit log but
+      // at that time we do not have remoteOpHandle
+      getOperationLog.foreach(_.close())
+    } catch {
+      case e: IOException => error(e.getMessage, e)
     }
   }
 
@@ -161,11 +179,17 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
     }
   }
 
-  override def getNextRowSet(order: FetchOrientation, rowSetSize: Int): TRowSet = {
+  override def getNextRowSetInternal(
+      order: FetchOrientation,
+      rowSetSize: Int): TFetchResultsResp = {
     validateDefaultFetchOrientation(order)
     assertState(OperationState.FINISHED)
     setHasResultSet(true)
-    client.fetchResults(_remoteOpHandle, order, rowSetSize, fetchLog = false)
+    val rowset = client.fetchResults(_remoteOpHandle, order, rowSetSize, fetchLog = false)
+    val resp = new TFetchResultsResp(OK_STATUS)
+    resp.setResults(rowset)
+    resp.setHasMoreRows(false)
+    resp
   }
 
   override def shouldRunAsync: Boolean = false

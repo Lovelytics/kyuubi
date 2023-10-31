@@ -21,7 +21,7 @@
 
 When you want to run Kyuubi's Spark SQL engines on Kubernetes, you'd better have cognition upon the following things.
 
-* Read about [Running Spark On Kubernetes](http://spark.apache.org/docs/latest/running-on-kubernetes.html)
+* Read about [Running Spark On Kubernetes](https://spark.apache.org/docs/latest/running-on-kubernetes.html)
 * An active Kubernetes cluster
 * [Kubectl](https://kubernetes.io/docs/reference/kubectl/overview/)
 * KubeConfig of the target cluster
@@ -35,6 +35,17 @@ Spark on Kubernetes config master by using a special format.
 `spark.master=k8s://https://<k8s-apiserver-host>:<k8s-apiserver-port>`
 
 You can use cmd `kubectl cluster-info` to get api-server host and port.
+
+### Deploy Mode
+
+One of the main advantages of the Kyuubi server compared to other interactive Spark clients is that it supports cluster deploy mode.
+It is highly recommended to run Spark in k8s in cluster mode.
+
+The minimum required configurations are:
+
+* spark.submit.deployMode (cluster)
+* spark.kubernetes.file.upload.path (path on s3 or hdfs)
+* spark.kubernetes.authenticate.driver.serviceAccountName ([viz ServiceAccount](#serviceaccount))
 
 ### Docker Image
 
@@ -97,7 +108,7 @@ As it known to us all, Kubernetes can use configurations to mount volumes into d
 * persistentVolumeClaim: mounts a PersistentVolume into a pod.
 
 Note: Please
-see [the Security section of this document](http://spark.apache.org/docs/latest/running-on-kubernetes.html#security) for security issues related to volume mounts.
+see [the Security section of this document](https://spark.apache.org/docs/latest/running-on-kubernetes.html#security) for security issues related to volume mounts.
 
 ```
 spark.kubernetes.driver.volumes.<type>.<name>.options.path=<dist_path>
@@ -107,7 +118,7 @@ spark.kubernetes.executor.volumes.<type>.<name>.options.path=<dist_path>
 spark.kubernetes.executor.volumes.<type>.<name>.mount.path=<container_path>
 ```
 
-Read [Using Kubernetes Volumes](http://spark.apache.org/docs/latest/running-on-kubernetes.html#using-kubernetes-volumes) for more about volumes.
+Read [Using Kubernetes Volumes](https://spark.apache.org/docs/latest/running-on-kubernetes.html#using-kubernetes-volumes) for more about volumes.
 
 ### PodTemplateFile
 
@@ -117,4 +128,4 @@ To do so, specify the spark properties `spark.kubernetes.driver.podTemplateFile`
 
 ### Other
 
-You can read Spark's official documentation for [Running on Kubernetes](http://spark.apache.org/docs/latest/running-on-kubernetes.html) for more information.
+You can read Spark's official documentation for [Running on Kubernetes](https://spark.apache.org/docs/latest/running-on-kubernetes.html) for more information.

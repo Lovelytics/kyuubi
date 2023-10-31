@@ -52,6 +52,21 @@ if [[ ${RELEASE_VERSION} =~ .*-SNAPSHOT ]]; then
   exit 1
 fi
 
+if [ -n "${JAVA_HOME}" ]; then
+  JAVA="${JAVA_HOME}/bin/java"
+elif [ "$(command -v java)" ]; then
+  JAVA="java"
+else
+  echo "JAVA_HOME is not set" >&2
+  exit 1
+fi
+
+JAVA_VERSION=$($JAVA -version 2>&1 | awk -F '"' '/version/ {print $2}')
+if [[ $JAVA_VERSION != 1.8.* ]]; then
+  echo "Unexpected Java version: $JAVA_VERSION. Java 8 is required for release."
+  exit 1
+fi
+
 RELEASE_TAG="v${RELEASE_VERSION}-rc${RELEASE_RC_NO}"
 
 SVN_STAGING_REPO="https://dist.apache.org/repos/dist/dev/kyuubi"
@@ -85,7 +100,7 @@ upload_svn_staging() {
 
   svn add "${SVN_STAGING_DIR}/${RELEASE_TAG}"
 
-  echo "Uploading release tarballs to ${SVN_STAGING_DIR}/${RELEASE_TAG}"
+  echo "Uploading release tarballs to ${SVN_STAGING_REPO}/${RELEASE_TAG}"
   (
     cd "${SVN_STAGING_DIR}" && \
     svn commit --username "${ASF_USERNAME}" --password "${ASF_PASSWORD}" --message "Apache Kyuubi ${RELEASE_TAG}"
@@ -94,17 +109,34 @@ upload_svn_staging() {
 }
 
 upload_nexus_staging() {
-  ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided \
-    -s "${KYUUBI_DIR}/build/release/asf-settings.xml"
+  # Spark Extension Plugin for Spark 3.1
   ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided,spark-3.1 \
     -s "${KYUUBI_DIR}/build/release/asf-settings.xml" \
     -pl extensions/spark/kyuubi-extension-spark-3-1 -am
+
+  # Spark Extension Plugin for Spark 3.2
   ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided,spark-3.2 \
     -s "${KYUUBI_DIR}/build/release/asf-settings.xml" \
     -pl extensions/spark/kyuubi-extension-spark-3-2 -am
+
+  # Spark Extension Plugin for Spark 3.3
   ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided,spark-3.3 \
     -s "${KYUUBI_DIR}/build/release/asf-settings.xml" \
     -pl extensions/spark/kyuubi-extension-spark-3-3 -am
+
+  # Spark Extension Plugin for Spark 3.5
+  ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided,spark-3.5 \
+    -s "${KYUUBI_DIR}/build/release/asf-settings.xml" \
+    -pl extensions/spark/kyuubi-extension-spark-3-5 -am
+
+  # Spark TPC-DS/TPC-H Connector built with default Spark version (3.4) and Scala 2.13
+  ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided,spark-3.4,scala-2.13 \
+    -s "${KYUUBI_DIR}/build/release/asf-settings.xml" \
+    -pl extensions/spark/kyuubi-spark-connector-tpcds,extensions/spark/kyuubi-spark-connector-tpch -am
+
+  # All modules including Spark Extension Plugin and Connectors built with default Spark version (3.4) and default Scala version (2.12)
+  ${KYUUBI_DIR}/build/mvn clean deploy -DskipTests -Papache-release,flink-provided,spark-provided,hive-provided,spark-3.4 \
+    -s "${KYUUBI_DIR}/build/release/asf-settings.xml"
 }
 
 finalize_svn() {

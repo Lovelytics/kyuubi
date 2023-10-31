@@ -134,7 +134,7 @@ abstract class TBinaryFrontendService(name: String)
       keyStorePassword: String,
       keyStoreType: Option[String],
       keyStoreAlgorithm: Option[String],
-      disallowedSslProtocols: Seq[String],
+      disallowedSslProtocols: Set[String],
       includeCipherSuites: Seq[String]): TServerSocket = {
     val params =
       if (includeCipherSuites.nonEmpty) {
@@ -163,7 +163,7 @@ abstract class TBinaryFrontendService(name: String)
           }
         }
         sslServerSocket.setEnabledProtocols(enabledProtocols)
-        info(s"SSL Server Socket enabled protocols: $enabledProtocols")
+        info(s"SSL Server Socket enabled protocols: ${enabledProtocols.mkString(",")}")
 
       case _ =>
     }
