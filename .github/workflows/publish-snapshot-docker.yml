@@ -53,7 +53,7 @@ jobs:
       - name: Build Kyuubi Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: docker build --build-arg MVN_ARG="-Pspark-${{ matrix.spark-version }}" --tag $ECR_REGISTRY/ndap/kyuubi:1.7.0-spark${{ matrix.spark-version }} --file build/Dockerfile .
+        run: docker build --build-arg MVN_ARG="-Pspark-${{ matrix.spark-version }}" --tag $ECR_REGISTRY/ndap/kyuubi:1.7.3-spark${{ matrix.spark-version }} --file build/Dockerfile .
       - name: Docker image
         run: docker images
       - name: Push Docker image
