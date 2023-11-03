@@ -17,7 +17,6 @@
 
 package org.apache.kyuubi.engine.spark
 
-import java.net.InetAddress
 import java.time.Instant
 import java.util.{Locale, UUID}
 import java.util.concurrent.{CountDownLatch, ScheduledExecutorService, ThreadPoolExecutor, TimeUnit}
@@ -165,6 +164,10 @@ object SparkSQLEngine extends Logging {
 
   private val sparkSessionCreated = new AtomicBoolean(false)
 
+  // Kubernetes pod name max length - '-exec-' - Int.MAX_VALUE.length
+  // 253 - 10 - 6
+  val EXECUTOR_POD_NAME_PREFIX_MAX_LENGTH = 237
+
   SignalRegister.registerLogger(logger)
   setupConf()
 
@@ -189,7 +192,6 @@ object SparkSQLEngine extends Logging {
     _kyuubiConf = KyuubiConf()
     val rootDir = _sparkConf.getOption("spark.repl.classdir").getOrElse(getLocalDir(_sparkConf))
     val outputDir = Utils.createTempDir(prefix = "repl", root = rootDir)
-    _sparkConf.setIfMissing("spark.sql.execution.topKSortFallbackThreshold", "10000")
     _sparkConf.setIfMissing("spark.sql.legacy.castComplexTypesToString.enabled", "true")
     _sparkConf.setIfMissing("spark.master", "local")
     _sparkConf.set(
@@ -223,7 +225,7 @@ object SparkSQLEngine extends Logging {
 
       if (!isOnK8sClusterMode) {
         // set driver host to ip instead of kyuubi pod name
-        _sparkConf.set("spark.driver.host", InetAddress.getLocalHost.getHostAddress)
+        _sparkConf.setIfMissing("spark.driver.host", Utils.findLocalInetAddress.getHostAddress)
       }
     }
 
@@ -359,7 +361,7 @@ object SparkSQLEngine extends Logging {
 
   private def startInitTimeoutChecker(startTime: Long, timeout: Long): Unit = {
     val mainThread = Thread.currentThread()
-    new Thread(
+    val checker = new Thread(
       () => {
         while (System.currentTimeMillis() - startTime < timeout && !sparkSessionCreated.get()) {
           Thread.sleep(500)
@@ -368,7 +370,9 @@ object SparkSQLEngine extends Logging {
           mainThread.interrupt()
         }
       },
-      "CreateSparkTimeoutChecker").start()
+      "CreateSparkTimeoutChecker")
+    checker.setDaemon(true)
+    checker.start()
   }
 
   private def isOnK8sClusterMode: Boolean = {
@@ -390,8 +394,4 @@ object SparkSQLEngine extends Logging {
       s"kyuubi-${UUID.randomUUID()}"
     }
   }
-
-  // Kubernetes pod name max length - '-exec-' - Int.MAX_VALUE.length
-  // 253 - 10 - 6
-  val EXECUTOR_POD_NAME_PREFIX_MAX_LENGTH = 237
 }

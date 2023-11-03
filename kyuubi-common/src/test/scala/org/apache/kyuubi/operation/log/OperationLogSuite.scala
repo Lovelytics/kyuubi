@@ -61,10 +61,10 @@ class OperationLogSuite extends KyuubiFunSuite {
     assert(!Files.exists(logFile))
 
     OperationLog.setCurrentOperationLog(operationLog)
-    assert(OperationLog.getCurrentOperationLog === operationLog)
+    assert(OperationLog.getCurrentOperationLog === Some(operationLog))
 
     OperationLog.removeCurrentOperationLog()
-    assert(OperationLog.getCurrentOperationLog === null)
+    assert(OperationLog.getCurrentOperationLog.isEmpty)
 
     operationLog.write(msg1 + "\n")
     assert(Files.exists(logFile))
@@ -297,4 +297,53 @@ class OperationLogSuite extends KyuubiFunSuite {
       Utils.deleteDirectoryRecursively(extraFile.toFile)
     }
   }
+
+  test("Closing the unwritten operation log should not throw an exception") {
+    val sessionManager = new NoopSessionManager
+    sessionManager.initialize(KyuubiConf())
+    val sHandle = sessionManager.openSession(
+      TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
+      "kyuubi",
+      "passwd",
+      "localhost",
+      Map.empty)
+    val session = sessionManager.getSession(sHandle)
+    OperationLog.createOperationLogRootDirectory(session)
+    val oHandle = OperationHandle()
+
+    val log = OperationLog.createOperationLog(session, oHandle)
+    val tRowSet = log.read(1)
+    assert(tRowSet == ThriftUtils.newEmptyRowSet)
+    // close the operation log without writing
+    log.close()
+    session.close()
+  }
+
+  test("test operationLog multiple read with missing line ") {
+    val file = Utils.createTempDir().resolve("f")
+    val writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)
+    try {
+      0.until(10).foreach(x => writer.write(s"$x\n"))
+      writer.flush()
+      writer.close()
+
+      val log = new OperationLog(file)
+      // The operation log file is created externally and should be initialized actively.
+      log.initOperationLogIfNecessary()
+
+      def compareResult(rows: TRowSet, expected: Seq[String]): Unit = {
+        val res = rows.getColumns.get(0).getStringVal.getValues.asScala
+        assert(res.size == expected.size)
+        res.zip(expected).foreach { case (l, r) =>
+          assert(l == r)
+        }
+      }
+      compareResult(log.read(2), Seq("0", "1"))
+      compareResult(log.read(3), Seq("2", "3", "4"))
+      compareResult(log.read(10), Seq("5", "6", "7", "8", "9"))
+    } finally {
+      Utils.deleteDirectoryRecursively(file.toFile)
+    }
+  }
+
 }

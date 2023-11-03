@@ -19,6 +19,7 @@ package org.apache.kyuubi.engine
 
 import java.util.concurrent.TimeUnit
 
+import scala.collection.JavaConverters._
 import scala.util.Random
 
 import com.codahale.metrics.MetricRegistry
@@ -40,6 +41,7 @@ import org.apache.kyuubi.ha.client.{DiscoveryClient, DiscoveryClientProvider, Di
 import org.apache.kyuubi.metrics.MetricsConstants.{ENGINE_FAIL, ENGINE_TIMEOUT, ENGINE_TOTAL}
 import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.operation.log.OperationLog
+import org.apache.kyuubi.plugin.GroupProvider
 
 /**
  * The description and functionality of an engine at server side
@@ -51,7 +53,7 @@ import org.apache.kyuubi.operation.log.OperationLog
 private[kyuubi] class EngineRef(
     conf: KyuubiConf,
     user: String,
-    primaryGroup: String,
+    groupProvider: GroupProvider,
     engineRefId: String,
     engineManager: KyuubiApplicationManager)
   extends Logging {
@@ -74,7 +76,7 @@ private[kyuubi] class EngineRef(
 
   private val enginePoolIgnoreSubdomain: Boolean = conf.get(ENGINE_POOL_IGNORE_SUBDOMAIN)
 
-  private val enginePoolBalancePolicy: String = conf.get(ENGINE_POOL_BALANCE_POLICY)
+  private val enginePoolSelectPolicy: String = conf.get(ENGINE_POOL_SELECT_POLICY)
 
   // In case the multi kyuubi instances have the small gap of timeout, here we add
   // a small amount of time for timeout
@@ -85,7 +87,7 @@ private[kyuubi] class EngineRef(
   // Launcher of the engine
   private[kyuubi] val appUser: String = shareLevel match {
     case SERVER => Utils.currentUser
-    case GROUP => primaryGroup
+    case GROUP => groupProvider.primaryGroup(user, conf.getAll.asJava)
     case _ => user
   }
 
@@ -97,12 +99,11 @@ private[kyuubi] class EngineRef(
         warn(s"Request engine pool size($clientPoolSize) exceeds, fallback to " +
           s"system threshold $poolThreshold")
       }
-      val seqNum = enginePoolBalancePolicy match {
+      val seqNum = enginePoolSelectPolicy match {
         case "POLLING" =>
           val snPath =
             DiscoveryPaths.makePath(
-              s"${serverSpace}_${KYUUBI_VERSION}_${shareLevel}_$engineType",
-              "seq_num",
+              s"${serverSpace}_${KYUUBI_VERSION}_${shareLevel}_${engineType}_seqNum",
               appUser,
               clientPoolName)
           DiscoveryClientProvider.withDiscoveryClient(conf) { client =>
@@ -159,8 +160,7 @@ private[kyuubi] class EngineRef(
       case _ =>
         val lockPath =
           DiscoveryPaths.makePath(
-            s"${serverSpace}_${shareLevel}_$engineType",
-            "lock",
+            s"${serverSpace}_${KYUUBI_VERSION}_${shareLevel}_${engineType}_lock",
             appUser,
             subdomain)
         discoveryClient.tryWithLock(
@@ -218,7 +218,10 @@ private[kyuubi] class EngineRef(
         // check the engine application state from engine manager and fast fail on engine terminate
         if (exitValue == Some(0)) {
           Option(engineManager).foreach { engineMgr =>
-            engineMgr.getApplicationInfo(builder.clusterManager(), engineRefId).foreach { appInfo =>
+            engineMgr.getApplicationInfo(
+              builder.clusterManager(),
+              engineRefId,
+              Some(started)).foreach { appInfo =>
               if (ApplicationState.isTerminated(appInfo.state)) {
                 MetricsSystem.tracing { ms =>
                   ms.incCount(MetricRegistry.name(ENGINE_FAIL, appUser))
@@ -248,9 +251,15 @@ private[kyuubi] class EngineRef(
       }
       engineRef.get
     } finally {
+      val waitCompletion = conf.get(KyuubiConf.SESSION_ENGINE_STARTUP_WAIT_COMPLETION)
+      val destroyProcess = !waitCompletion && builder.isClusterMode()
+      if (destroyProcess) {
+        info("Destroy the builder process because waitCompletion is false" +
+          " and the engine is running in cluster mode.")
+      }
       // we must close the process builder whether session open is success or failure since
       // we have a log capture thread in process builder.
-      builder.close()
+      builder.close(destroyProcess)
     }
   }
 

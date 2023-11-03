@@ -171,7 +171,7 @@ class SparkSQLLineageParserHelperSuite extends KyuubiFunSuite
         "WHEN MATCHED THEN " +
         "  UPDATE SET target.name = source.name, target.price = source.price " +
         "WHEN NOT MATCHED THEN " +
-        "  INSERT (id, name, price) VALUES (source.id, source.name, source.price)")
+        "  INSERT (id, name, price) VALUES (cast(source.id as int), source.name, source.price)")
       assert(ret0 == Lineage(
         List("v2_catalog.db.source_t"),
         List("v2_catalog.db.target_t"),
@@ -1091,6 +1091,182 @@ class SparkSQLLineageParserHelperSuite extends KyuubiFunSuite
         List(
           ("aa", Set("default.table1.a", "default.table0.a")),
           ("bb", Set("default.table1.b")))))
+    }
+  }
+
+  test("test group by") {
+    withTable("t1", "t2", "v2_catalog.db.t1", "v2_catalog.db.t2") { _ =>
+      spark.sql("CREATE TABLE t1 (a string, b string, c string) USING hive")
+      spark.sql("CREATE TABLE t2 (a string, b string, c string) USING hive")
+      spark.sql("CREATE TABLE v2_catalog.db.t1 (a string, b string, c string)")
+      spark.sql("CREATE TABLE v2_catalog.db.t2 (a string, b string, c string)")
+      val ret0 =
+        exectractLineage(
+          s"insert into table t1 select a," +
+            s"concat_ws('/', collect_set(b))," +
+            s"count(distinct(b)) * count(distinct(c))" +
+            s"from t2 group by a")
+      assert(ret0 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set("default.t2.a")),
+          ("default.t1.b", Set("default.t2.b")),
+          ("default.t1.c", Set("default.t2.b", "default.t2.c")))))
+
+      val ret1 =
+        exectractLineage(
+          s"insert into table v2_catalog.db.t1 select a," +
+            s"concat_ws('/', collect_set(b))," +
+            s"count(distinct(b)) * count(distinct(c))" +
+            s"from v2_catalog.db.t2 group by a")
+      assert(ret1 == Lineage(
+        List("v2_catalog.db.t2"),
+        List("v2_catalog.db.t1"),
+        List(
+          ("v2_catalog.db.t1.a", Set("v2_catalog.db.t2.a")),
+          ("v2_catalog.db.t1.b", Set("v2_catalog.db.t2.b")),
+          ("v2_catalog.db.t1.c", Set("v2_catalog.db.t2.b", "v2_catalog.db.t2.c")))))
+
+      val ret2 =
+        exectractLineage(
+          s"insert into table v2_catalog.db.t1 select a," +
+            s"count(distinct(b+c))," +
+            s"count(distinct(b)) * count(distinct(c))" +
+            s"from v2_catalog.db.t2 group by a")
+      assert(ret2 == Lineage(
+        List("v2_catalog.db.t2"),
+        List("v2_catalog.db.t1"),
+        List(
+          ("v2_catalog.db.t1.a", Set("v2_catalog.db.t2.a")),
+          ("v2_catalog.db.t1.b", Set("v2_catalog.db.t2.b", "v2_catalog.db.t2.c")),
+          ("v2_catalog.db.t1.c", Set("v2_catalog.db.t2.b", "v2_catalog.db.t2.c")))))
+    }
+  }
+
+  test("test grouping sets") {
+    withTable("t1", "t2") { _ =>
+      spark.sql("CREATE TABLE t1 (a string, b string, c string) USING hive")
+      spark.sql("CREATE TABLE t2 (a string, b string, c string, d string) USING hive")
+      val ret0 =
+        exectractLineage(
+          s"insert into table t1 select a,b,GROUPING__ID " +
+            s"from t2 group by a,b,c,d grouping sets ((a,b,c), (a,b,d))")
+      assert(ret0 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set("default.t2.a")),
+          ("default.t1.b", Set("default.t2.b")),
+          ("default.t1.c", Set()))))
+    }
+  }
+
+  test("test catch table with window function") {
+    withTable("t1", "t2") { _ =>
+      spark.sql("CREATE TABLE t1 (a string, b string) USING hive")
+      spark.sql("CREATE TABLE t2 (a string, b string) USING hive")
+
+      spark.sql(
+        s"cache table c1 select * from (" +
+          s"select a, b, row_number() over (partition by a order by b asc ) rank from t2)" +
+          s" where rank=1")
+      val ret0 = exectractLineage("insert overwrite table t1 select a, b from c1")
+      assert(ret0 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set("default.t2.a")),
+          ("default.t1.b", Set("default.t2.b")))))
+
+      val ret1 = exectractLineage("insert overwrite table t1 select a, rank from c1")
+      assert(ret1 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set("default.t2.a")),
+          ("default.t1.b", Set("default.t2.a", "default.t2.b")))))
+
+      spark.sql(
+        s"cache table c2 select * from (" +
+          s"select b, a, row_number() over (partition by a order by b asc ) rank from t2)" +
+          s" where rank=1")
+      val ret2 = exectractLineage("insert overwrite table t1 select a, b from c2")
+      assert(ret2 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set("default.t2.a")),
+          ("default.t1.b", Set("default.t2.b")))))
+
+      spark.sql(
+        s"cache table c3 select * from (" +
+          s"select a as aa, b as bb, row_number() over (partition by a order by b asc ) rank" +
+          s" from t2) where rank=1")
+      val ret3 = exectractLineage("insert overwrite table t1 select aa, bb from c3")
+      assert(ret3 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set("default.t2.a")),
+          ("default.t1.b", Set("default.t2.b")))))
+    }
+  }
+
+  test("test count()") {
+    withTable("t1", "t2") { _ =>
+      spark.sql("CREATE TABLE t1 (a string, b string, c string) USING hive")
+      spark.sql("CREATE TABLE t2 (a string, b string, c string) USING hive")
+      val ret0 = exectractLineage("insert into t1 select 1,2,(select count(distinct" +
+        " ifnull(get_json_object(a, '$.b.imei'), get_json_object(a, '$.b.android_id'))) from t2)")
+
+      assert(ret0 == Lineage(
+        List("default.t2"),
+        List("default.t1"),
+        List(
+          ("default.t1.a", Set()),
+          ("default.t1.b", Set()),
+          ("default.t1.c", Set("default.t2.a")))))
+    }
+  }
+
+  test("test create view from view") {
+    withTable("t1") { _ =>
+      spark.sql("CREATE TABLE t1 (a string, b string, c string) USING hive")
+      withView("t2") { _ =>
+        spark.sql("CREATE VIEW t2 as select * from t1")
+        val ret0 =
+          exectractLineage(
+            s"create or replace view view_tst comment 'view'" +
+              s" as select a as k,b" +
+              s" from t2" +
+              s" where a in ('HELLO') and c = 'HELLO'")
+        assert(ret0 == Lineage(
+          List("default.t1"),
+          List("default.view_tst"),
+          List(
+            ("default.view_tst.k", Set("default.t1.a")),
+            ("default.view_tst.b", Set("default.t1.b")))))
+      }
+    }
+  }
+
+  test("test the statement with FROM xxx INSERT xxx") {
+    withTable("t1", "t2", "t3") { _ =>
+      spark.sql("CREATE TABLE t1 (a string, b string) USING hive")
+      spark.sql("CREATE TABLE t2 (a string, b string) USING hive")
+      spark.sql("CREATE TABLE t3 (a string, b string) USING hive")
+      val ret0 = exectractLineage("from (select a,b from t1)" +
+        " insert overwrite table t2 select a,b where a=1" +
+        " insert overwrite table t3 select a,b where b=1")
+      assert(ret0 == Lineage(
+        List("default.t1"),
+        List("default.t2", "default.t3"),
+        List(
+          ("default.t2.a", Set("default.t1.a")),
+          ("default.t2.b", Set("default.t1.b")),
+          ("default.t3.a", Set("default.t1.a")),
+          ("default.t3.b", Set("default.t1.b")))))
     }
   }
 

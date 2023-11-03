@@ -56,7 +56,7 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
 
   protected def onError(action: String = "operating"): PartialFunction[Throwable, Unit] = {
     case e: Throwable =>
-      state.synchronized {
+      withLockRequired {
         if (isTerminalState(state)) {
           warn(s"Ignore exception in terminal state with $statementId", e)
         } else {
@@ -98,14 +98,14 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
   }
 
   override protected def afterRun(): Unit = {
-    state.synchronized {
+    withLockRequired {
       if (!isTerminalState(state)) {
         setState(OperationState.FINISHED)
       }
     }
   }
 
-  override def cancel(): Unit = state.synchronized {
+  override def cancel(): Unit = withLockRequired {
     if (!isClosedOrCanceled) {
       setState(OperationState.CANCELED)
       MetricsSystem.tracing(_.decCount(MetricRegistry.name(OPERATION_OPEN, opType)))
@@ -120,17 +120,10 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
     }
   }
 
-  override def close(): Unit = state.synchronized {
+  override def close(): Unit = withLockRequired {
     if (!isClosedOrCanceled) {
       setState(OperationState.CLOSED)
       MetricsSystem.tracing(_.decCount(MetricRegistry.name(OPERATION_OPEN, opType)))
-      try {
-        // For launch engine operation, we use OperationLog to pass engine submit log but
-        // at that time we do not have remoteOpHandle
-        getOperationLog.foreach(_.close())
-      } catch {
-        case e: IOException => error(e.getMessage, e)
-      }
       if (_remoteOpHandle != null) {
         try {
           client.closeOperation(_remoteOpHandle)
@@ -139,6 +132,13 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
             warn(s"Error closing ${_remoteOpHandle.getOperationId}: ${e.getMessage}", e)
         }
       }
+    }
+    try {
+      // For launch engine operation, we use OperationLog to pass engine submit log but
+      // at that time we do not have remoteOpHandle
+      getOperationLog.foreach(_.close())
+    } catch {
+      case e: IOException => error(e.getMessage, e)
     }
   }
 
@@ -161,7 +161,7 @@ abstract class KyuubiOperation(session: Session) extends AbstractOperation(sessi
     }
   }
 
-  override def getNextRowSet(order: FetchOrientation, rowSetSize: Int): TRowSet = {
+  override def getNextRowSetInternal(order: FetchOrientation, rowSetSize: Int): TRowSet = {
     validateDefaultFetchOrientation(order)
     assertState(OperationState.FINISHED)
     setHasResultSet(true)

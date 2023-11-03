@@ -24,7 +24,6 @@
 [![](https://tokei.rs/b1/github.com/apache/kyuubi)](https://github.com/apache/kyuubi)
 [![codecov](https://codecov.io/gh/apache/kyuubi/branch/master/graph/badge.svg)](https://codecov.io/gh/apache/kyuubi)
 ![GitHub Workflow Status](https://img.shields.io/github/workflow/status/apache/kyuubi/Kyuubi/master?style=plastic)
-[![Travis](https://api.travis-ci.com/apache/kyuubi.svg?branch=master)](https://travis-ci.com/apache/kyuubi)
 [![Documentation Status](https://readthedocs.org/projects/kyuubi/badge/?version=latest)](https://kyuubi.readthedocs.io/en/master/)
 ![GitHub top language](https://img.shields.io/github/languages/top/apache/kyuubi)
 [![Commit activity](https://img.shields.io/github/commit-activity/m/apache/kyuubi)](https://github.com/apache/kyuubi/graphs/commit-activity)
@@ -71,8 +70,7 @@ HiveServer2 can identify and authenticate a caller, and then if the caller also 
 
 Kyuubi extends the use of STS in a multi-tenant model based on a unified interface and relies on the concept of multi-tenancy to interact with cluster managers to finally gain the ability of resources sharing/isolation and data security. The loosely coupled architecture of the Kyuubi server and engine dramatically improves the client concurrency and service stability of the service itself.
 
-
-#### DataLake/LakeHouse Support
+#### DataLake/Lakehouse Support
 
 The vision of Kyuubi is to unify the portal and become an easy-to-use data lake management platform. Different kinds of workloads, such as ETL processing and BI analytics, can be supported by one platform, using one copy of data, with one SQL interface.
 

@@ -283,9 +283,9 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
     shutdown = true
     val shutdownTimeout: Long =
       if (isServer) {
-        conf.get(ENGINE_EXEC_POOL_SHUTDOWN_TIMEOUT)
-      } else {
         conf.get(SERVER_EXEC_POOL_SHUTDOWN_TIMEOUT)
+      } else {
+        conf.get(ENGINE_EXEC_POOL_SHUTDOWN_TIMEOUT)
       }
 
     ThreadUtils.shutdown(timeoutChecker, Duration(shutdownTimeout, TimeUnit.MILLISECONDS))
@@ -302,6 +302,8 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
           for (session <- handleToSession.values().asScala) {
             if (session.lastAccessTime + session.sessionIdleTimeoutThreshold <= current &&
               session.getNoOperationTime > session.sessionIdleTimeoutThreshold) {
+              info(s"Closing session ${session.handle.identifier} that has been idle for more" +
+                s" than ${session.sessionIdleTimeoutThreshold} ms")
               try {
                 closeSession(session.handle)
               } catch {

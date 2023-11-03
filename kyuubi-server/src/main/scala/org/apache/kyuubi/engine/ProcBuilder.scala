@@ -118,7 +118,7 @@ trait ProcBuilder {
     env.get("KYUUBI_WORK_DIR_ROOT").map { root =>
       val workingRoot = Paths.get(root).toAbsolutePath
       if (!Files.exists(workingRoot)) {
-        debug(s"Creating KYUUBI_WORK_DIR_ROOT at $workingRoot")
+        info(s"Creating KYUUBI_WORK_DIR_ROOT at $workingRoot")
         Files.createDirectories(workingRoot)
       }
       if (Files.isDirectory(workingRoot)) {
@@ -127,7 +127,7 @@ trait ProcBuilder {
     }.map { rootAbs =>
       val working = Paths.get(rootAbs, proxyUser)
       if (!Files.exists(working)) {
-        debug(s"Creating $proxyUser's working directory at $working")
+        info(s"Creating $proxyUser's working directory at $working")
         Files.createDirectories(working)
       }
       if (Files.isDirectory(working)) {
@@ -155,7 +155,7 @@ trait ProcBuilder {
   @volatile private var error: Throwable = UNCAUGHT_ERROR
 
   private val engineLogMaxLines = conf.get(KyuubiConf.SESSION_ENGINE_STARTUP_MAX_LOG_LINES)
-  private val waitCompletion = conf.get(KyuubiConf.SESSION_ENGINE_STARTUP_WAIT_COMPLETION)
+
   protected val lastRowsOfLog: EvictingQueue[String] = EvictingQueue.create(engineLogMaxLines)
   // Visible for test
   @volatile private[kyuubi] var logCaptureThreadReleased: Boolean = true
@@ -249,13 +249,14 @@ trait ProcBuilder {
     process
   }
 
-  def close(destroyProcess: Boolean = !waitCompletion): Unit = synchronized {
+  def isClusterMode(): Boolean = false
+
+  def close(destroyProcess: Boolean): Unit = synchronized {
     if (logCaptureThread != null) {
       logCaptureThread.interrupt()
       logCaptureThread = null
     }
     if (destroyProcess && process != null) {
-      info("Destroy the process, since waitCompletion is false.")
       process.destroyForcibly()
       process = null
     }

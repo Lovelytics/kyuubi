@@ -44,7 +44,7 @@ object OperationLog extends Logging {
     OPERATION_LOG.set(operationLog)
   }
 
-  def getCurrentOperationLog: OperationLog = OPERATION_LOG.get()
+  def getCurrentOperationLog: Option[OperationLog] = Option(OPERATION_LOG.get)
 
   def removeCurrentOperationLog(): Unit = OPERATION_LOG.remove()
 
@@ -130,12 +130,14 @@ class OperationLog(path: Path) {
     val logs = new JArrayList[String]
     var i = 0
     try {
-      var line: String = reader.readLine()
-      while ((i < lastRows || maxRows <= 0) && line != null) {
-        logs.add(line)
+      var line: String = null
+      do {
         line = reader.readLine()
-        i += 1
-      }
+        if (line != null) {
+          logs.add(line)
+          i += 1
+        }
+      } while ((i < lastRows || maxRows <= 0) && line != null)
       (logs, i)
     } catch {
       case e: IOException =>
@@ -195,6 +197,8 @@ class OperationLog(path: Path) {
   }
 
   def close(): Unit = synchronized {
+    if (!initialized) return
+
     closeExtraReaders()
 
     trySafely {
@@ -212,7 +216,7 @@ class OperationLog(path: Path) {
     }
 
     trySafely {
-      Files.delete(path)
+      Files.deleteIfExists(path)
     }
   }
 

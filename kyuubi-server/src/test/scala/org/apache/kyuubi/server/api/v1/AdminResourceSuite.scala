@@ -17,6 +17,7 @@
 
 package org.apache.kyuubi.server.api.v1
 
+import java.nio.charset.StandardCharsets
 import java.util.{Base64, UUID}
 import javax.ws.rs.core.{GenericType, MediaType}
 
@@ -27,15 +28,21 @@ import org.apache.kyuubi.client.api.v1.dto.Engine
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.{ApplicationState, EngineRef, KyuubiApplicationManager}
 import org.apache.kyuubi.engine.EngineType.SPARK_SQL
-import org.apache.kyuubi.engine.ShareLevel.{CONNECTION, USER}
+import org.apache.kyuubi.engine.ShareLevel.{CONNECTION, GROUP, USER}
 import org.apache.kyuubi.ha.HighAvailabilityConf
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
 import org.apache.kyuubi.ha.client.DiscoveryPaths
+import org.apache.kyuubi.plugin.PluginLoader
+import org.apache.kyuubi.server.KyuubiRestFrontendService
 import org.apache.kyuubi.server.http.authentication.AuthenticationHandler.AUTHORIZATION_HEADER
 
 class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
 
   private val engineMgr = new KyuubiApplicationManager()
+
+  val encodeAuthorization = new String(
+    Base64.getEncoder.encode(s"${Utils.currentUser}:".getBytes()),
+    StandardCharsets.UTF_8)
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -54,11 +61,6 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       .post(null)
     assert(405 == response.getStatus)
 
-    val adminUser = Utils.currentUser
-    val encodeAuthorization = new String(
-      Base64.getEncoder.encode(
-        s"$adminUser:".getBytes()),
-      "UTF-8")
     response = webTarget.path("api/v1/admin/refresh/hadoop_conf")
       .request()
       .header(AUTHORIZATION_HEADER, s"BASIC $encodeAuthorization")
@@ -72,12 +74,20 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       .post(null)
     assert(405 == response.getStatus)
 
-    val adminUser = Utils.currentUser
-    val encodeAuthorization = new String(
-      Base64.getEncoder.encode(
-        s"$adminUser:".getBytes()),
-      "UTF-8")
     response = webTarget.path("api/v1/admin/refresh/user_defaults_conf")
+      .request()
+      .header(AUTHORIZATION_HEADER, s"BASIC $encodeAuthorization")
+      .post(null)
+    assert(200 == response.getStatus)
+  }
+
+  test("refresh unlimited users of the kyuubi server") {
+    var response = webTarget.path("api/v1/admin/refresh/unlimited_users")
+      .request()
+      .post(null)
+    assert(405 == response.getStatus)
+
+    response = webTarget.path("api/v1/admin/refresh/unlimited_users")
       .request()
       .header(AUTHORIZATION_HEADER, s"BASIC $encodeAuthorization")
       .post(null)
@@ -91,7 +101,10 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
     conf.set(KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT, 0)
     conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
     conf.set(KyuubiConf.ENGINE_IDLE_TIMEOUT, 180000L)
-    val engine = new EngineRef(conf.clone, Utils.currentUser, "grp", id, null)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
+
+    val engine =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id, null)
 
     val engineSpace = DiscoveryPaths.makePath(
       s"kyuubi_test_${KYUUBI_VERSION}_USER_SPARK_SQL",
@@ -104,13 +117,54 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       assert(client.pathExists(engineSpace))
       assert(client.getChildren(engineSpace).size == 1)
 
-      val adminUser = Utils.currentUser
-      val encodeAuthorization = new String(
-        Base64.getEncoder.encode(
-          s"$adminUser:".getBytes()),
-        "UTF-8")
       val response = webTarget.path("api/v1/admin/engine")
         .queryParam("sharelevel", "USER")
+        .queryParam("type", "spark_sql")
+        .request(MediaType.APPLICATION_JSON_TYPE)
+        .header(AUTHORIZATION_HEADER, s"BASIC $encodeAuthorization")
+        .delete()
+
+      assert(200 == response.getStatus)
+      assert(client.pathExists(engineSpace))
+      eventually(timeout(5.seconds), interval(100.milliseconds)) {
+        assert(client.getChildren(engineSpace).size == 0, s"refId same with $id?")
+      }
+
+      // kill the engine application
+      engineMgr.killApplication(None, id)
+      eventually(timeout(30.seconds), interval(100.milliseconds)) {
+        assert(engineMgr.getApplicationInfo(None, id).exists(_.state == ApplicationState.NOT_FOUND))
+      }
+    }
+  }
+
+  test("delete engine - group share level") {
+    val id = UUID.randomUUID().toString
+    conf.set(KyuubiConf.ENGINE_SHARE_LEVEL, GROUP.toString)
+    conf.set(KyuubiConf.ENGINE_TYPE, SPARK_SQL.toString)
+    conf.set(KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT, 0)
+    conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
+    conf.set(KyuubiConf.ENGINE_IDLE_TIMEOUT, 180000L)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
+
+    val engine =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id, null)
+
+    val engineSpace = DiscoveryPaths.makePath(
+      s"kyuubi_test_${KYUUBI_VERSION}_GROUP_SPARK_SQL",
+      fe.asInstanceOf[KyuubiRestFrontendService].sessionManager.groupProvider.primaryGroup(
+        Utils.currentUser,
+        null),
+      "default")
+
+    withDiscoveryClient(conf) { client =>
+      engine.getOrCreate(client)
+
+      assert(client.pathExists(engineSpace))
+      assert(client.getChildren(engineSpace).size == 1)
+
+      val response = webTarget.path("api/v1/admin/engine")
+        .queryParam("sharelevel", "GROUP")
         .queryParam("type", "spark_sql")
         .request(MediaType.APPLICATION_JSON_TYPE)
         .header(AUTHORIZATION_HEADER, s"BASIC $encodeAuthorization")
@@ -136,9 +190,11 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
     conf.set(KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT, 0)
     conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
     conf.set(KyuubiConf.ENGINE_IDLE_TIMEOUT, 180000L)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
 
     val id = UUID.randomUUID().toString
-    val engine = new EngineRef(conf.clone, Utils.currentUser, "grp", id, null)
+    val engine =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id, null)
     val engineSpace = DiscoveryPaths.makePath(
       s"kyuubi_test_${KYUUBI_VERSION}_CONNECTION_SPARK_SQL",
       Utils.currentUser,
@@ -150,11 +206,6 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       assert(client.pathExists(engineSpace))
       assert(client.getChildren(engineSpace).size == 1)
 
-      val adminUser = Utils.currentUser
-      val encodeAuthorization = new String(
-        Base64.getEncoder.encode(
-          s"$adminUser:".getBytes()),
-        "UTF-8")
       val response = webTarget.path("api/v1/admin/engine")
         .queryParam("sharelevel", "connection")
         .queryParam("type", "spark_sql")
@@ -174,7 +225,10 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
     conf.set(KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT, 0)
     conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
     conf.set(KyuubiConf.ENGINE_IDLE_TIMEOUT, 180000L)
-    val engine = new EngineRef(conf.clone, Utils.currentUser, id, "grp", null)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
+
+    val engine =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id, null)
 
     val engineSpace = DiscoveryPaths.makePath(
       s"kyuubi_test_${KYUUBI_VERSION}_USER_SPARK_SQL",
@@ -187,11 +241,6 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       assert(client.pathExists(engineSpace))
       assert(client.getChildren(engineSpace).size == 1)
 
-      val adminUser = Utils.currentUser
-      val encodeAuthorization = new String(
-        Base64.getEncoder.encode(
-          s"$adminUser:".getBytes()),
-        "UTF-8")
       val response = webTarget.path("api/v1/admin/engine")
         .queryParam("type", "spark_sql")
         .request(MediaType.APPLICATION_JSON_TYPE)
@@ -213,12 +262,59 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
     }
   }
 
+  test("list engine - group share level") {
+    val id = UUID.randomUUID().toString
+    conf.set(KyuubiConf.ENGINE_SHARE_LEVEL, GROUP.toString)
+    conf.set(KyuubiConf.ENGINE_TYPE, SPARK_SQL.toString)
+    conf.set(KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT, 0)
+    conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
+    conf.set(KyuubiConf.ENGINE_IDLE_TIMEOUT, 180000L)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
+
+    val engine =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id, null)
+
+    val engineSpace = DiscoveryPaths.makePath(
+      s"kyuubi_test_${KYUUBI_VERSION}_GROUP_SPARK_SQL",
+      fe.asInstanceOf[KyuubiRestFrontendService].sessionManager.groupProvider.primaryGroup(
+        Utils.currentUser,
+        null),
+      "")
+
+    withDiscoveryClient(conf) { client =>
+      engine.getOrCreate(client)
+
+      assert(client.pathExists(engineSpace))
+      assert(client.getChildren(engineSpace).size == 1)
+
+      val response = webTarget.path("api/v1/admin/engine")
+        .queryParam("type", "spark_sql")
+        .request(MediaType.APPLICATION_JSON_TYPE)
+        .header(AUTHORIZATION_HEADER, s"BASIC $encodeAuthorization")
+        .get
+
+      assert(200 == response.getStatus)
+      val engines = response.readEntity(new GenericType[Seq[Engine]]() {})
+      assert(engines.size == 1)
+      assert(engines(0).getEngineType == "SPARK_SQL")
+      assert(engines(0).getSharelevel == "GROUP")
+      assert(engines(0).getSubdomain == "default")
+
+      // kill the engine application
+      engineMgr.killApplication(None, id)
+      eventually(timeout(30.seconds), interval(100.milliseconds)) {
+        assert(engineMgr.getApplicationInfo(None, id).exists(_.state == ApplicationState.NOT_FOUND))
+      }
+    }
+  }
+
   test("list engine - connection share level") {
     conf.set(KyuubiConf.ENGINE_SHARE_LEVEL, CONNECTION.toString)
     conf.set(KyuubiConf.ENGINE_TYPE, SPARK_SQL.toString)
     conf.set(KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT, 0)
     conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
     conf.set(KyuubiConf.ENGINE_IDLE_TIMEOUT, 180000L)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
 
     val engineSpace = DiscoveryPaths.makePath(
       s"kyuubi_test_${KYUUBI_VERSION}_CONNECTION_SPARK_SQL",
@@ -226,14 +322,16 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       "")
 
     val id1 = UUID.randomUUID().toString
-    val engine1 = new EngineRef(conf.clone, Utils.currentUser, "grp", id1, null)
+    val engine1 =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id1, null)
     val engineSpace1 = DiscoveryPaths.makePath(
       s"kyuubi_test_${KYUUBI_VERSION}_CONNECTION_SPARK_SQL",
       Utils.currentUser,
       id1)
 
     val id2 = UUID.randomUUID().toString
-    val engine2 = new EngineRef(conf.clone, Utils.currentUser, "grp", id2, null)
+    val engine2 =
+      new EngineRef(conf.clone, Utils.currentUser, PluginLoader.loadGroupProvider(conf), id2, null)
     val engineSpace2 = DiscoveryPaths.makePath(
       s"kyuubi_test_${KYUUBI_VERSION}_CONNECTION_SPARK_SQL",
       Utils.currentUser,
@@ -248,11 +346,6 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
       assert(client.pathExists(engineSpace1))
       assert(client.pathExists(engineSpace2))
 
-      val adminUser = Utils.currentUser
-      val encodeAuthorization = new String(
-        Base64.getEncoder.encode(
-          s"$adminUser:".getBytes()),
-        "UTF-8")
       val response = webTarget.path("api/v1/admin/engine")
         .queryParam("type", "spark_sql")
         .request(MediaType.APPLICATION_JSON_TYPE)
