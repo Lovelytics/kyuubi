@@ -17,11 +17,10 @@
 
 package org.apache.kyuubi.zookeeper
 
-import org.apache.kyuubi.config.{ConfigBuilder, ConfigEntry, KyuubiConf, OptionalConfigEntry}
+import org.apache.kyuubi.config.{ConfigEntry, OptionalConfigEntry}
+import org.apache.kyuubi.config.KyuubiConf.buildConf
 
 object ZookeeperConf {
-
-  private def buildConf(key: String): ConfigBuilder = KyuubiConf.buildConf(key)
 
   @deprecated("using kyuubi.zookeeper.embedded.client.port instead", since = "1.2.0")
   val EMBEDDED_ZK_PORT: ConfigEntry[Int] = buildConf("kyuubi.zookeeper.embedded.port")
@@ -49,6 +48,13 @@ object ZookeeperConf {
       .version("1.2.0")
       .stringConf
       .createOptional
+
+  val ZK_CLIENT_USE_HOSTNAME: ConfigEntry[Boolean] =
+    buildConf("kyuubi.zookeeper.embedded.client.use.hostname")
+      .doc("When true, embedded Zookeeper prefer to bind hostname, otherwise, ip address.")
+      .version("1.7.2")
+      .booleanConf
+      .createWithDefault(false)
 
   val ZK_DATA_DIR: ConfigEntry[String] = buildConf("kyuubi.zookeeper.embedded.data.dir")
     .doc("dataDir for the embedded zookeeper server where stores the in-memory database" +

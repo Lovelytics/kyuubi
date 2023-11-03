@@ -756,6 +756,20 @@ class FlinkOperationSuite extends WithFlinkSQLEngine with HiveJDBCTestHelper {
     }
   }
 
+  test("execute statement - select time") {
+    withJdbcStatement() { statement =>
+      val resultSet =
+        statement.executeQuery(
+          "select time '00:00:03', time '00:00:05.123456789'")
+      val metaData = resultSet.getMetaData
+      assert(metaData.getColumnType(1) === java.sql.Types.VARCHAR)
+      assert(metaData.getColumnType(2) === java.sql.Types.VARCHAR)
+      assert(resultSet.next())
+      assert(resultSet.getString(1) == "00:00:03")
+      assert(resultSet.getString(2) == "00:00:05.123")
+    }
+  }
+
   test("execute statement - select array") {
     withJdbcStatement() { statement =>
       val resultSet =
@@ -819,6 +833,16 @@ class FlinkOperationSuite extends WithFlinkSQLEngine with HiveJDBCTestHelper {
     }
   }
 
+  test("execute statement - select varbinary") {
+    withJdbcStatement() { statement =>
+      val resultSet = statement.executeQuery("select cast('kyuubi' as varbinary)")
+      assert(resultSet.next())
+      assert(resultSet.getString(1) == "kyuubi")
+      val metaData = resultSet.getMetaData
+      assert(metaData.getColumnType(1) === java.sql.Types.BINARY)
+    }
+  }
+
   test("execute statement - select float") {
     withJdbcStatement()({ statement =>
       val resultSet = statement.executeQuery("SELECT cast(0.1 as float)")
@@ -876,20 +900,15 @@ class FlinkOperationSuite extends WithFlinkSQLEngine with HiveJDBCTestHelper {
   }
 
   test("execute statement - create/drop catalog") {
-    withJdbcStatement()({ statement =>
-      val createResult = {
+    withJdbcStatement() { statement =>
+      val createResult =
         statement.executeQuery("create catalog cat_a with ('type'='generic_in_memory')")
-      }
-      if (isFlinkVersionAtLeast("1.15")) {
-        assert(createResult.next())
-        assert(createResult.getString(1) === "OK")
-      }
+      assert(createResult.next())
+      assert(createResult.getString(1) === "OK")
       val dropResult = statement.executeQuery("drop catalog cat_a")
-      if (isFlinkVersionAtLeast("1.15")) {
-        assert(dropResult.next())
-        assert(dropResult.getString(1) === "OK")
-      }
-    })
+      assert(dropResult.next())
+      assert(dropResult.getString(1) === "OK")
+    }
   }
 
   test("execute statement - set/get catalog") {
@@ -903,6 +922,7 @@ class FlinkOperationSuite extends WithFlinkSQLEngine with HiveJDBCTestHelper {
         statement.getConnection.setCatalog("cat_a")
         val changedCatalog = statement.getConnection.getCatalog
         assert(changedCatalog == "cat_a")
+        statement.getConnection.setCatalog("default_catalog")
         assert(statement.execute("drop catalog cat_a"))
       }
     }

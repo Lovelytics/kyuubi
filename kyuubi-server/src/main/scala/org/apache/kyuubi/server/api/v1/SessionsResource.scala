@@ -41,6 +41,7 @@ import org.apache.kyuubi.session.SessionHandle
 
 @Tag(name = "Session")
 @Produces(Array(MediaType.APPLICATION_JSON))
+@Consumes(Array(MediaType.APPLICATION_JSON))
 private[v1] class SessionsResource extends ApiRequestContext with Logging {
   implicit def toSessionHandle(str: String): SessionHandle = SessionHandle.fromUUID(str)
   private def sessionManager = fe.be.sessionManager
@@ -138,12 +139,11 @@ private[v1] class SessionsResource extends ApiRequestContext with Logging {
     content = Array(new Content(mediaType = MediaType.APPLICATION_JSON)),
     description = "Open(create) a session")
   @POST
-  @Consumes(Array(MediaType.APPLICATION_JSON))
   def openSession(request: SessionOpenRequest): dto.SessionHandle = {
     val userName = fe.getSessionUser(request.getConfigs.asScala.toMap)
     val ipAddress = fe.getIpAddress
     val handle = fe.be.openSession(
-      TProtocolVersion.findByValue(request.getProtocolVersion),
+      SessionsResource.SESSION_PROTOCOL_VERSION,
       userName,
       "",
       ipAddress,
@@ -162,6 +162,7 @@ private[v1] class SessionsResource extends ApiRequestContext with Logging {
   @DELETE
   @Path("{sessionHandle}")
   def closeSession(@PathParam("sessionHandle") sessionHandleStr: String): Response = {
+    info(s"Received request of closing $sessionHandleStr")
     fe.be.closeSession(sessionHandleStr)
     Response.ok().build()
   }
@@ -181,7 +182,7 @@ private[v1] class SessionsResource extends ApiRequestContext with Logging {
       fe.be.executeStatement(
         sessionHandleStr,
         request.getStatement,
-        Map.empty,
+        request.getConfOverlay.asScala.toMap,
         request.isRunAsync,
         request.getQueryTimeout)
     } catch {
@@ -403,4 +404,8 @@ private[v1] class SessionsResource extends ApiRequestContext with Logging {
         throw new NotFoundException(errorMsg)
     }
   }
+}
+
+object SessionsResource {
+  final val SESSION_PROTOCOL_VERSION = TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V1
 }

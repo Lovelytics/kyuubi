@@ -29,7 +29,7 @@ import org.apache.commons.text.StringEscapeUtils
 import org.apache.spark.ui.TableSourceUtil._
 import org.apache.spark.ui.UIUtils._
 
-import org.apache.kyuubi.{KYUUBI_VERSION, Utils}
+import org.apache.kyuubi._
 import org.apache.kyuubi.engine.spark.events.{SessionEvent, SparkOperationEvent}
 
 case class EnginePage(parent: EngineTab) extends WebUIPage("") {
@@ -57,6 +57,15 @@ case class EnginePage(parent: EngineTab) extends WebUIPage("") {
       <li>
         <strong>Kyuubi Version: </strong>
         {KYUUBI_VERSION}
+      </li>
+      <li>
+        <strong>Compilation Revision:</strong>
+        {REVISION.substring(0, 7)} ({REVISION_TIME}), branch {BRANCH}
+      </li>
+      <li>
+        <strong>Compilation with:</strong>
+        Spark {SPARK_COMPILE_VERSION}, Scala {SCALA_COMPILE_VERSION},
+          Hadoop {HADOOP_COMPILE_VERSION}, Hive {HIVE_COMPILE_VERSION}
       </li>
       <li>
         <strong>Started at: </strong>
@@ -288,7 +297,7 @@ case class EnginePage(parent: EngineTab) extends WebUIPage("") {
         <td> {session.name} </td>
         <td> {formatDate(session.startTime)} </td>
         <td> {if (session.endTime > 0) formatDate(session.endTime)} </td>
-        <td> {formatDurationVerbose(session.duration)} </td>
+        <td> {formatDuration(session.duration)} </td>
         <td> {session.totalOperations} </td>
       </tr>
     }
@@ -382,7 +391,7 @@ private class StatementStatsPagedTable(
         {if (event.completeTime > 0) formatDate(event.completeTime)}
       </td>
       <td >
-        {formatDurationVerbose(event.duration)}
+        {formatDuration(event.duration)}
       </td>
       <td>
         <span class="description-input">

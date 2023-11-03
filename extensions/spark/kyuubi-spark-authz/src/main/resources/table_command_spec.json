@@ -220,6 +220,20 @@
     "fieldExtractor" : "LogicalPlanQueryExtractor"
   } ]
 }, {
+  "classname" : "org.apache.spark.sql.catalyst.plans.logical.DescribeRelation",
+  "tableDescs" : [ {
+    "fieldName" : "relation",
+    "fieldExtractor" : "ResolvedTableTableExtractor",
+    "columnDesc" : null,
+    "actionTypeDesc" : null,
+    "tableTypeDesc" : null,
+    "catalogDesc" : null,
+    "isInput" : true,
+    "setCurrentDatabaseIfMissing" : true
+  } ],
+  "opType" : "DESCTABLE",
+  "queryDescs" : [ ]
+}, {
   "classname" : "org.apache.spark.sql.catalyst.plans.logical.DropColumns",
   "tableDescs" : [ {
     "fieldName" : "child",
@@ -677,23 +691,6 @@
     "fieldName" : "oldName",
     "fieldExtractor" : "TableIdentifierTableExtractor",
     "columnDesc" : null,
-    "actionTypeDesc" : {
-      "fieldName" : null,
-      "fieldExtractor" : null,
-      "actionType" : "DELETE"
-    },
-    "tableTypeDesc" : {
-      "fieldName" : "oldName",
-      "fieldExtractor" : "TableIdentifierTableTypeExtractor",
-      "skipTypes" : [ "TEMP_VIEW" ]
-    },
-    "catalogDesc" : null,
-    "isInput" : false,
-    "setCurrentDatabaseIfMissing" : false
-  }, {
-    "fieldName" : "newName",
-    "fieldExtractor" : "TableIdentifierTableExtractor",
-    "columnDesc" : null,
     "actionTypeDesc" : null,
     "tableTypeDesc" : {
       "fieldName" : "oldName",
@@ -854,20 +851,6 @@
   "queryDescs" : [ ]
 }, {
   "classname" : "org.apache.spark.sql.execution.command.AnalyzeTableCommand",
-  "tableDescs" : [ {
-    "fieldName" : "tableIdent",
-    "fieldExtractor" : "TableIdentifierTableExtractor",
-    "columnDesc" : null,
-    "actionTypeDesc" : null,
-    "tableTypeDesc" : null,
-    "catalogDesc" : null,
-    "isInput" : true,
-    "setCurrentDatabaseIfMissing" : false
-  } ],
-  "opType" : "ANALYZE_TABLE",
-  "queryDescs" : [ ]
-}, {
-  "classname" : "org.apache.spark.sql.execution.command.AnalyzeTablesCommand",
   "tableDescs" : [ {
     "fieldName" : "tableIdent",
     "fieldExtractor" : "TableIdentifierTableExtractor",
@@ -1180,6 +1163,23 @@
   "opType" : "TRUNCATETABLE",
   "queryDescs" : [ ]
 }, {
+  "classname" : "org.apache.spark.sql.execution.datasources.CreateTable",
+  "tableDescs" : [ {
+    "fieldName" : "tableDesc",
+    "fieldExtractor" : "CatalogTableTableExtractor",
+    "columnDesc" : null,
+    "actionTypeDesc" : null,
+    "tableTypeDesc" : null,
+    "catalogDesc" : null,
+    "isInput" : false,
+    "setCurrentDatabaseIfMissing" : false
+  } ],
+  "opType" : "CREATETABLE",
+  "queryDescs" : [ {
+    "fieldName" : "query",
+    "fieldExtractor" : "LogicalPlanOptionQueryExtractor"
+  } ]
+}, {
   "classname" : "org.apache.spark.sql.execution.datasources.CreateTempViewUsing",
   "tableDescs" : [ ],
   "opType" : "CREATEVIEW",
@@ -1230,7 +1230,7 @@
     "fieldExtractor" : "LogicalPlanQueryExtractor"
   } ]
 }, {
-  "classname" : "org.apache.spark.sql.execution.datasources.InsertIntoHiveDirCommand",
+  "classname" : "org.apache.spark.sql.hive.execution.InsertIntoHiveDirCommand",
   "tableDescs" : [ ],
   "opType" : "QUERY",
   "queryDescs" : [ {

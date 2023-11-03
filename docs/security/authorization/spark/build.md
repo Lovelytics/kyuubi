@@ -19,7 +19,7 @@
 
 ## Build with Apache Maven
 
-Kyuubi Spark AuthZ Plugin is built using [Apache Maven](http://maven.apache.org).
+Kyuubi Spark AuthZ Plugin is built using [Apache Maven](https://maven.apache.org).
 To build it, `cd` to the root direct of kyuubi project and run:
 
 ```shell
@@ -68,17 +68,17 @@ build/mvn clean package -pl :kyuubi-spark-authz_2.12 -DskipTests -Dranger.versio
 
 The available `ranger.version`s are shown in the following table.
 
-| Ranger Version | Supported | Remark |
-|:--------------:|:---------:|:------:|
-|     2.3.x      |     √     |   -    |
-|     2.2.x      |     √     |   -    |
-|     2.1.x      |     √     |   -    |
-|     2.0.x      |     √     |   -    |
-|     1.2.x      |     √     |   -    |
-|     1.1.x      |     √     |   -    |
-|     1.0.x      |     √     |   -    |
-|     0.7.x      |     √     |   -    |
-|     0.6.x      |     √     |   -    |
+| Ranger Version | Supported |                                          Remark                                           |
+|:--------------:|:---------:|:-----------------------------------------------------------------------------------------:|
+|     2.3.x      |     √     |                                             -                                             |
+|     2.2.x      |     √     |                                             -                                             |
+|     2.1.x      |     √     |                                             -                                             |
+|     2.0.x      |     √     |                                             -                                             |
+|     1.2.x      |     √     |                                             -                                             |
+|     1.1.x      |     √     |                                             -                                             |
+|     1.0.x      |     √     |                                             -                                             |
+|     0.7.x      |     √     |                                             -                                             |
+|     0.6.x      |     X     | [RANGER-4672](https://github.com/apache/kyuubi/issues/4672) reported unresolved failures. |
 
 Currently, all ranger releases are supported.
 
